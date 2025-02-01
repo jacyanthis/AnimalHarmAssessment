@@ -42,7 +42,11 @@ Follow these steps in a Google Colab notebook to run the AHA benchmark:
    !pip install inspect-ai anthropic google-generativeai openai
 
    # 3. Run an Example Batch with Analysis
-   !python /content/aha/aha.py --model 'openai/o1-mini-2024-09-12' --batch_size 2 --run-analysis   
+   !python /content/aha/aha.py \
+    --model 'anthropic/claude-3-5-haiku-20241022' \
+    --scorer_models "google/gemini-1.5-flash-002,openai/gpt-4o-mini-2024-07-18" \
+    --batch_size 2 \
+    --run-analysis 
    ```
 
 ## Project Structure
