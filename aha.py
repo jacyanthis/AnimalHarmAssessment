@@ -144,7 +144,7 @@ def main():
     parser.add_argument('--model', required=True, help='Model to evaluate')
     parser.add_argument(
         '--scorer_models',
-        default="anthropic/claude-3-5-haiku-20241022,google/gemini-1.5-flash-002,openai/gpt-4o-mini-2024-07-18",
+        default="anthropic/claude-3-5-sonnet-20241022,google/gemini-1.5-pro-002,openai/gpt-4o-2024-08-06",
         help='Comma-separated list of scoring models'
     )
     parser.add_argument('--dataset', help='Path to dataset JSON')
