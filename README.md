@@ -32,22 +32,17 @@ Follow these steps in a Google Colab notebook to run the AHA benchmark:
    ```
    # 1. Clone the files
    from google.colab import userdata
-   personal_token = userdata.get('GITHUB_TOKEN')
-   repository_url = f"https://{personal_token}@github.com/AI-for-Animals/aha.git"
-   !git clone https://github.com/AI-for-Animals/aha.git
+   !git clone "https://{userdata.get('GITHUB_TOKEN')}@github.com/AI-for-Animals/aha.git" aha
 
    # 2. Retrieve API keys & install dependencies
    import os
    os.environ['ANTHROPIC_API_KEY'] = userdata.get('ANTHROPIC_API_KEY')
    os.environ['GOOGLE_API_KEY'] = userdata.get('GOOGLE_API_KEY')
    os.environ['OPENAI_API_KEY'] = userdata.get('OPENAI_API_KEY')
-   !pip install inspect-ai
-   !pip install anthropic
-   !pip install google-generativeai
-   !pip install openai
+   !pip install inspect-ai anthropic google-generativeai openai
 
    # 3. Run an Example Batch with Analysis
-   !python /content/aha/aha.py --model 'google/gemini-1.5-flash-002' --batch_size 2 --run-analysis   
+   !python /content/aha/aha.py --model 'openai/o1-mini-2024-09-12' --batch_size 2 --run-analysis   
    ```
 
 ## Project Structure
