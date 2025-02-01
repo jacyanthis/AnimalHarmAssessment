@@ -27,7 +27,11 @@ from utils import (
     generate_timestamp,
 )
 
-# Set up logging and adjust specific logger levels to hide TRACE messages.
+# Declare globals at module level.
+config = None
+dataset_path = None
+
+# Set up logging.
 setup_logging(logging.INFO)
 logging.getLogger("inspect_ai.model").setLevel(logging.INFO)
 
@@ -35,25 +39,20 @@ logging.getLogger("inspect_ai.model").setLevel(logging.INFO)
 class Config:
     def __init__(self, args):
         self.model = args.model
-        self.scorer_models = args.scorer_models.split(',')
+        self.judges = args.judges.split(',')
         self.dataset_path = Path(args.dataset) if args.dataset else Path("/content/aha/data_public.json")
-        # Output directory (e.g. "aha/results")
         self.output_dir = Path(args.output_dir) if args.output_dir else Path("/content/aha/results")
         self.batch_size = args.batch_size
         self.seed = args.seed
         # If the temperature string equals "None" (case-insensitive), set to None; otherwise convert to float.
-        if args.temperature.lower() == "none":
-            self.temperature = None
-        else:
-            self.temperature = float(args.temperature)
+        self.model_temperature = None if args.model_temperature.lower() == "none" else float(args.model_temperature)
+        self.judge_temperature = None if args.judge_temperature.lower() == "none" else float(args.judge_temperature)
         self.run_analysis = args.run_analysis
         self.num_batches = args.num_batches
         self.current_batch = 1
 
 
 def setup_environment(config: Config) -> None:
-    """Set up directories, seed, and environment variables."""
-    # Ensure the output directory exists.
     mkd(config.output_dir)
     random.seed(config.seed)
     os.environ["INSPECT_EVAL_MODEL"] = config.model
@@ -61,13 +60,11 @@ def setup_environment(config: Config) -> None:
         f"AHA benchmark ({config.batch_size * config.num_batches} total samples, "
         f"{config.num_batches} batches of {config.batch_size}): {config.model}"
     )
-    logging.info(f"max_tokens: 1000, temperature: {config.temperature}, seed: {config.seed}")
+    logging.info(f"max_tokens: 1000, model_temperature: {config.model_temperature}, "
+                 f"judge_temperature: {config.judge_temperature}, seed: {config.seed}")
 
 
-def load_and_sample_data(
-    config: Config, full_data: List[Dict[str, Any]], used_indices: Set[int]
-) -> Tuple[Path, List[Dict[str, Any]]]:
-    """Sample a batch of data from the full dataset, avoiding duplicates."""
+def load_and_sample_data(config: Config, full_data: List[Dict[str, Any]], used_indices: Set[int]) -> Tuple[Path, List[Dict[str, Any]]]:
     available = set(range(len(full_data))) - used_indices
     if len(available) < config.batch_size:
         used_indices.clear()
@@ -75,7 +72,7 @@ def load_and_sample_data(
     batch = set(random.sample(list(available), config.batch_size))
     used_indices.update(batch)
     sampled = [full_data[i] for i in batch]
-    # Create a temp subdirectory inside the output directory for temporary sampled files.
+    # Write temporary files to a "temp" subdirectory inside the output directory.
     temp_dir = config.output_dir / "temp"
     mkd(temp_dir)
     sampled_file = temp_dir / f"sampled_data_batch{config.current_batch}.json"
@@ -84,7 +81,6 @@ def load_and_sample_data(
 
 
 def record_to_sample(record: Dict[str, Any]) -> Sample:
-    """Convert a record from the dataset to the Sample format required by inspect_ai."""
     return Sample(
         input=f"{record['question']} Your answer must be EXACTLY 30–40 words long.",
         target=SOLVER_INSTRUCTIONS,
@@ -92,40 +88,38 @@ def record_to_sample(record: Dict[str, Any]) -> Sample:
     )
 
 
-# Globals required by the inspect_ai framework.
-global config, dataset_path
-
+# Using a task decorator; ensure the global variables are imported from __main__ if necessary.
 @task
 def aha_evaluation() -> Task:
     """The main evaluation task for the AHA benchmark."""
-    global config, dataset_path
+    try:
+        # Try to access globals from __main__ in case they aren't in this module's namespace.
+        from __main__ import config, dataset_path
+    except ImportError:
+        global config, dataset_path
     dataset = json_dataset(str(dataset_path), sample_fields=record_to_sample)
-    if config.temperature is not None:
-        solver_instance = generate(max_tokens=1000, temperature=config.temperature, cache=True)
+    if config.model_temperature is not None:
+        solver_instance = generate(max_tokens=1000, temperature=config.model_temperature, cache=True)
     else:
         solver_instance = generate(max_tokens=1000, cache=True)
     return Task(
         dataset=dataset,
         solver=solver_instance,
-        scorer=final_digit_model_graded_qa(config.scorer_models),
+        scorer=final_digit_model_graded_qa(config.judges, judge_temperature=config.judge_temperature),
         max_retries=3,
         max_messages=20,
-        num_batches=1  # Batch handling is performed at a higher level.
+        num_batches=1
     )
 
 
 def combine_csv_results(config: Config, full_data: List[Dict[str, Any]], start_batch: int) -> None:
-    """Combine CSV files from multiple batches, adding tag columns."""
     csv_files = sorted(config.output_dir.glob('results_*.csv'))
     if not csv_files:
         logging.error("No CSV files found to combine")
         return
     combined_df = combine_csv_files(csv_files)
     start_idx = start_batch * config.batch_size
-    tags_list = [
-        data.get('tags', [])
-        for data in full_data[start_idx:start_idx + (config.num_batches * config.batch_size)]
-    ]
+    tags_list = [data.get('tags', []) for data in full_data[start_idx:start_idx + (config.num_batches * config.batch_size)]]
     max_tags = max((len(tags) for tags in tags_list), default=0)
     combined_df['sample_id'] = range(1, len(combined_df) + 1)
     for i in range(max_tags):
@@ -142,22 +136,15 @@ def combine_csv_results(config: Config, full_data: List[Dict[str, Any]], start_b
 def main():
     parser = argparse.ArgumentParser(description="Run the AHA benchmark evaluation")
     parser.add_argument('--model', required=True, help='Model to evaluate')
-    parser.add_argument(
-        '--scorer_models',
-        default="anthropic/claude-3-5-sonnet-20241022,google/gemini-1.5-pro-002,openai/gpt-4o-2024-08-06",
-        help='Comma-separated list of scoring models'
-    )
+    parser.add_argument('--judges', default="anthropic/claude-3-5-sonnet-20241022,google/gemini-1.5-pro-002,openai/gpt-4o-2024-08-068",
+                        help='Comma-separated list of judge models')
     parser.add_argument('--dataset', help='Path to dataset JSON')
     parser.add_argument('--output_dir', help='Directory for output files')
     parser.add_argument('--batch_size', type=int, default=100, help='Number of samples to evaluate')
     parser.add_argument('--num_batches', type=int, default=1, help='Number of batches to run')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
-    parser.add_argument(
-        '--temperature',
-        type=str,
-        default="0.5",
-        help='Temperature for generation (or "None" to disable)'
-    )
+    parser.add_argument('--model_temperature', type=str, default="0.5", help='Temperature for model generation (or "None" to disable)')
+    parser.add_argument('--judge_temperature', type=str, default="0.5", help='Temperature for judge models (or "None" to disable)')
     parser.add_argument('--run-analysis', action='store_true', help='Run analysis.py after evaluation')
     parser.add_argument('--start-batch', type=int, default=0, help='Starting batch number for combining results')
     args = parser.parse_args()
@@ -200,11 +187,9 @@ def main():
             else:
                 logging.warning("results_combined.csv not found, skipping final CSV-based analysis")
     finally:
-        # Cleanup: remove temporary sampled files.
         for f in sampled_files:
             if f.exists():
                 f.unlink()
-
 
 if __name__ == "__main__":
     main()
