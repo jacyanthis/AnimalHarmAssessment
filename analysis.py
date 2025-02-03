@@ -64,8 +64,8 @@ def parse_eval(log_file: str|None, log_dir: str="./logs") -> dict:
         if hasattr(final_scores,"value"):
             newvals={}
             for k,v in final_scores.value.items():
-                vv=str(v).strip("[]")
-                newvals[k]=int(vv) if vv in{"-1","0","1"} else DFLT_SCORE
+                sval = re.sub(r"[\[\]\s]", "", str(v))
+                newvals[k] = int(sval) if sval in {"-1","0","1"} else DFLT_SCORE
             final_scores=newvals
         for m in scorers:
             sc_val=final_scores.get(m,DFLT_SCORE)
