@@ -8,7 +8,7 @@ The **Animal Harm Assessment (AHA) Benchmark** is an evaluation framework design
 
 ## Overview
 
-AHA benchmarki investigates how LLM-generated text can impact animal welfare by evaluating responses to a diverse set of questions. The original set of questions include:
+AHA benchmark investigates how LLM-generated text can impact animal welfare by evaluating responses to a diverse set of questions. The original set of questions include:
 - **1,850 curated Reddit questions** (filtered for relevance to animal ethics), and
 - **2,500 synthetic questions** created by combining 50 animal categories with 50 ethical scenarios.
 
