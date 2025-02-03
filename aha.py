@@ -136,7 +136,7 @@ def combine_csv_results(config: Config, full_data: List[Dict[str, Any]], start_b
 def main():
     parser = argparse.ArgumentParser(description="Run the AHA benchmark evaluation")
     parser.add_argument('--model', required=True, help='Model to evaluate')
-    parser.add_argument('--judges', default="anthropic/claude-3-5-sonnet-20241022,google/gemini-1.5-pro-002,openai/gpt-4o-2024-08-068",
+    parser.add_argument('--judges', default="anthropic/claude-3-5-sonnet-20241022,google/gemini-1.5-pro-002,openai/gpt-4o-2024-08-06",
                         help='Comma-separated list of judge models')
     parser.add_argument('--dataset', help='Path to dataset JSON')
     parser.add_argument('--output_dir', help='Directory for output files')
