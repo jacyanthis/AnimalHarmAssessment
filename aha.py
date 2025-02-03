@@ -159,15 +159,29 @@ def combine_csv_results(config: Config) -> None:
 
     combined_df = combine_csv_files(csv_files)
 
-    # Reorder columns: move any columns starting with "tag" to the end
-    tag_cols = [col for col in combined_df.columns if col.startswith("tag")]
-    non_tag_cols = [col for col in combined_df.columns if not col.startswith("tag")]
-    combined_df = combined_df[non_tag_cols + tag_cols]
+    # Identify columns
+    cols = list(combined_df.columns)
+    answer_cols = [c for c in cols if c.endswith('_answer')]
+    tag_cols    = [c for c in cols if c.startswith('tag')]
+    # Everything else that isn't an answer col or a tag col
+    other_cols  = [c for c in cols if c not in answer_cols + tag_cols]
+
+    # We want sample_id, input at the front (if they exist)
+    front_cols = []
+    for c in ['sample_id', 'input']:
+        if c in other_cols:
+            front_cols.append(c)
+            other_cols.remove(c)
+
+    # Final order: [front_cols] + [answer_cols] + [other_cols] + [tag_cols]
+    final_order = front_cols + answer_cols + other_cols + tag_cols
+
+    # Reindex the DataFrame with the new column order
+    combined_df = combined_df[final_order]
 
     combined_path = config.output_dir / 'results_combined.csv'
     combined_df.to_csv(combined_path, index=False)
     logging.info(f"Combined CSV saved to: {combined_path}")
-
 
 ###########################################################
 # Main Function
@@ -227,7 +241,11 @@ def main():
                 latest_eval = get_latest_file(log_dir, '*.eval')
                 if latest_eval:
                     logging.info(f"Results for batch {config.current_batch}:")
-                    os.system(f"python /content/aha/analysis.py --log-file {latest_eval} --output-dir {config.output_dir}")
+                    os.system(
+                        f"python /content/aha/analysis.py --log-file {latest_eval} "
+                        f"--output-dir {config.output_dir} "
+                        f"--solver-name '{config.model}'"
+                    )
 
         total_time = time.time() - start_time
         logging.info(f"Total time for all batches: {total_time:.2f}s")
