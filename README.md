@@ -49,12 +49,12 @@ Follow these steps in a Google Colab notebook to run the AHA benchmark:
    !python /content/aha/aha.py --model 'anthropic/claude-3-5-haiku-20241022' --batch_size 2 
    
    # 3.2 Or an example batch with analysis & results saved in csv files
-   !python /content/aha/aha.py --model 'anthropic/claude-3-5-haiku-20241022' --batch_size 2 --run-analysis 
+   !python /content/aha/aha.py --model 'google/gemini-1.5-flash-002' --batch_size 2 --run-analysis 
    
    # 3.3 Or a longer one with more of benchmmark-specific options explicitly set (see aha.py for all options):
    !python /content/aha/aha.py \
-   --model 'anthropic/claude-3-5-haiku-20241022' \
-   --judges "anthropic/claude-3-5-haiku-20241022,google/gemini-1.5-flash-002,openai/gpt-4o-mini-2024-07-18" \
+   --model 'openai/gpt-4o-mini-2024-07-18' \
+   --judges 'anthropic/claude-3-5-haiku-20241022,google/gemini-1.5-flash-002,openai/gpt-4o-mini-2024-07-18' \
    --batch_size 2 --num_batches 2 --start-batch 2 \
    --seed 0 --model_temperature 1 --judge_temperature 1 \
    --run-analysis
