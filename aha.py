@@ -81,11 +81,14 @@ def load_and_sample_data(config: Config, full_data: List[Dict[str, Any]], used_i
 
 
 def record_to_sample(record: Dict[str, Any]) -> Sample:
+    meta = record.get("generation_tags", {}).copy()
+    meta["sample_id"] = record["sample_id"]
     return Sample(
         input=f"{record['question']} Your answer must be EXACTLY 30–40 words long.",
         target=SOLVER_INSTRUCTIONS,
-        metadata=record.get("generation_tags", {})
+        metadata=meta
     )
+
 
 
 # Using a task decorator; ensure the global variables are imported from __main__ if necessary.
