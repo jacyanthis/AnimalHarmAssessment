@@ -55,8 +55,8 @@ Follow these steps in a Google Colab notebook to run the AHA benchmark:
    !python /content/aha/aha.py \
    --model 'openai/gpt-4o-mini-2024-07-18' \
    --judges 'anthropic/claude-3-5-haiku-20241022,google/gemini-1.5-flash-002,openai/gpt-4o-mini-2024-07-18' \
-   --batch_size 2 --num_batches 2 --start-batch 2 \
-   --seed 0 --model_temperature 1 --judge_temperature 1 \
+   --batch_size 2 --num_batches 2 \
+   --seed 1 --model_temperature 0 --judge_temperature 0 \
    --run-analysis
    ```
 
