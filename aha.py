@@ -107,6 +107,7 @@ def record_to_sample(record: Dict[str, Any]) -> Sample:
     """
     meta = record.get("generation_tags", {}).copy()
     meta["sample_id"] = record["sample_id"]
+    meta["tags"] = record.get("tags", [])
     return Sample(
         input=f"{record['question']} Your answer must be EXACTLY 30–40 words long.",
         target=SOLVER_INSTRUCTIONS,
@@ -150,34 +151,20 @@ def aha_evaluation() -> Task:
 # Result Combination
 ###########################################################
 
-def combine_csv_results(conf: Config, full_data: List[Dict[str, Any]], start_batch: int) -> None:
+def combine_csv_results(conf: Config) -> None:
     """
-    Combines all CSV files named results_*.csv in conf.output_dir,
-    adds any tags from the dataset, then saves results_combined.csv.
+    Simple function to combine all results_*.csv in conf.output_dir
+    into results_combined.csv, with no special tagging logic.
     """
-    csv_files = sorted(conf.output_dir.glob('results_*.csv'))
+    csv_files = sorted(conf.output_dir.glob("results_*.csv"))
     if not csv_files:
         logging.error("No CSV files found to combine.")
         return
 
-    combined_df = combine_csv_files(csv_files)
-    start_idx = start_batch * conf.batch_size
-    # Retrieve 'tags' from each data record, if any
-    tags_list = [data.get('tags', []) for data in full_data[start_idx : start_idx + (conf.num_batches * conf.batch_size)]]
-    max_tags = max((len(tags) for tags in tags_list), default=0)
-
-    # Create new columns in combined_df for each potential tag
-    for i in range(max_tags):
-        col = f'tag{i+1}'
-        combined_df[col] = ''
-        for idx, tags in enumerate(tags_list):
-            if idx < len(combined_df) and i < len(tags):
-                combined_df.at[idx, col] = tags[i]
-
-    combined_path = conf.output_dir / 'results_combined.csv'
-    combined_df.to_csv(combined_path, index=False)
+    combined = combine_csv_files(csv_files)
+    combined_path = conf.output_dir / "results_combined.csv"
+    combined.to_csv(combined_path, index=False)
     logging.info(f"Combined CSV saved to: {combined_path}")
-
 
 ###########################################################
 # Main Function
@@ -245,7 +232,7 @@ def main():
         # Combine CSV results & do final analysis if requested
         if config.run_analysis:
             logging.info("Combining results from all batches...")
-            combine_csv_results(config, full_data, args.start_batch)
+            combine_csv_results(config)
             combined_path = config.output_dir / 'results_combined.csv'
             if combined_path.exists():
                 logging.info("Running final analysis on results_combined.csv ...")
