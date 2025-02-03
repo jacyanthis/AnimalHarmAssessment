@@ -124,7 +124,6 @@ def combine_csv_results(config: Config, full_data: List[Dict[str, Any]], start_b
     start_idx = start_batch * config.batch_size
     tags_list = [data.get('tags', []) for data in full_data[start_idx:start_idx + (config.num_batches * config.batch_size)]]
     max_tags = max((len(tags) for tags in tags_list), default=0)
-    combined_df['sample_id'] = range(1, len(combined_df) + 1)
     for i in range(max_tags):
         col = f'tag{i+1}'
         combined_df[col] = ''
