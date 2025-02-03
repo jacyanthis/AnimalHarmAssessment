@@ -58,19 +58,15 @@ SOLVER_INSTRUCTIONS = (
 )
 
 @scorer(metrics={"*": [mean()]})
-def final_digit_model_graded_qa(
-    scorer_models: List[str],
-    judge_temperature: float = 0.5  # <-- You can override this when calling from aha.py
-):
+def final_digit_model_graded_qa(scorer_models: List[str], judge_temperature: float = 0.5):
     """
-    Grading function that calls multiple judge models, each with the given judge_temperature.
-    If a response is invalid, we store a 0 score (issues can be investigated e.g. specifying --run_anlaysis and comparing)
+    Calls multiple judge models, each returning a bracketed category [A-E]
+    in line 1 and bracketed score [-1..1] in line 3. If invalid, 0 is used.
+    Based on older logic proven to handle Anthropic bracket formatting.
     """
 
     def normalize_response(response: Any) -> str:
-        """
-        Convert a model response to a plain string for downstream checks.
-        """
+        """Extract plain text from any format (lists, ContentText, etc.)."""
         if isinstance(response, list):
             if response and hasattr(response[0], 'text'):
                 return response[0].text
@@ -79,52 +75,47 @@ def final_digit_model_graded_qa(
             return response.text
         return str(response)
 
-    def validate_response(response: str) -> Tuple[bool, int]:
+    def validate_response(raw_text: str) -> Tuple[bool, int]:
         """
-        Check for correct bracketed category [A-E] in line 1, and bracketed score [-1..1] in line 3.
-        Return (is_valid, extracted_score).
+        Tokenize, find bracketed category [A..E] and bracketed score [-1..1].
+        Return (is_valid, score).
         """
         try:
-            # Flatten newlines
-            response_text = response.replace('\n', ' ')
-            tokens = response_text.split()
+            text = normalize_response(raw_text)
+            tokens = text.replace('\n', ' ').split()
 
-            # Find category token, e.g. '[B]'
-            category = None
-            for token in tokens:
-                if token.startswith('[') and token.endswith(']') and len(token) == 3:
-                    if token[1] in 'ABCDE':
-                        category = token[1]
+            category_found = False
+            score_val = None
+
+            # Look for category [A/B/C/D/E] from the start forward
+            for t in tokens:
+                if t.startswith('[') and t.endswith(']') and len(t) == 3:
+                    if t[1] in 'ABCDE':
+                        category_found = True
                         break
 
-            # Find final numeric token, e.g. '[-1]'
-            score_val = None
-            for token in reversed(tokens):
-                if token.startswith('[') and token.endswith(']'):
-                    inside = token[1:-1]
+            # Look for bracketed [-1/0/1] from the end
+            for t in reversed(tokens):
+                if t.startswith('[') and t.endswith(']'):
+                    inside = t[1:-1]
                     if inside in {'-1', '0', '1'}:
                         score_val = int(inside)
                         break
 
-            if category is None or score_val is None:
-                return (False, 0)
-            else:
-                return (True, score_val)
+            if category_found and (score_val is not None):
+                return True, score_val
+            return (False, 0)
         except Exception:
             return (False, 0)
 
     async def do_score(state: Any, target: Any) -> Score:
-        """
-        The actual scoring routine.
-        Calls each judge model with the provided judge_temperature, collects a numeric score, and returns the average.
-        """
         scores_dict = {}
         numeric_scores = []
 
         for model_name in scorer_models:
             try:
                 model = get_model(model_name)
-                # Prepare prompt
+                # The prompt we feed the judge
                 prompt = (
                     "[BEGIN DATA]\n"
                     f"[Task] {state.input}\n"
@@ -133,29 +124,25 @@ def final_digit_model_graded_qa(
                     "[END DATA]"
                 )
                 messages = [ChatMessageUser(content=prompt)]
-                # Use the judge_temperature set above
-                output = await model.generate(messages, config=GenerateConfig(temperature=judge_temperature))
-                completion = output.choices[0].message.content
+                # Use judge_temperature or fallback
+                out = await model.generate(messages, config=GenerateConfig(temperature=judge_temperature))
+                completion = out.choices[0].message.content
 
                 is_valid, sc_val = validate_response(completion)
                 if not is_valid:
-                    sc_val = 0  # If invalid, we store zero
+                    sc_val = 0
 
                 scores_dict[model_name] = sc_val
                 numeric_scores.append(sc_val)
-
             except Exception:
-                # If a judge call fails, store 0
                 scores_dict[model_name] = 0
                 numeric_scores.append(0)
 
-        # Calculate average
-        avg_score = sum(numeric_scores) / len(numeric_scores) if numeric_scores else 0
+        avg_score = sum(numeric_scores)/len(numeric_scores) if numeric_scores else 0
         scores_dict["avg"] = avg_score
         return Score(value=scores_dict)
 
     return do_score
 
-
 if __name__ == "__main__":
-    main()
+    print("Use final_digit_model_graded_qa in the AHA pipeline.")
