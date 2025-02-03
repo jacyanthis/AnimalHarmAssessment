@@ -202,59 +202,54 @@ def parse_csv(csv_file: str) -> dict:
         "rows": None,
     }
 
-def write_csv(rows, models, output_dir: str, log_file: str = "", max_tag_count: int = 0) -> None:
+def write_csv(
+    rows, 
+    models, 
+    output_dir: str, 
+    log_file: str = "", 
+    max_tag_count: int = 0,
+    solver_name: str = ""
+) -> None:
     """
-    Write CSV. Each row is:
-      [
-        sample_id,
-        input,
-        final_answer,
-        <m1_assessment>,..., <mN_assessment>,
-        <m1_category>,..., <mN_category>,
-        <m1_score>,..., <mN_score>,
-        tags (list)
-      ]
-
-    We expand the tags list into columns tag1, tag2, etc.
+    Write CSV with columns:
+      sample_id, input, <solver_name>_answer,
+      each model's assessment, each model's category, each model's score, tag columns...
     """
     outd = Path(output_dir)
     mkd(outd)
     timestamp = extract_timestamp(log_file) or datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    # Build columns
-    cols = ["sample_id", "input", "final_answer"]
+    # Build standard columns
+    # The third column used to be "final_answer"
+    # Now we rename it to <solver_name>_answer (if solver_name is present)
+    answer_col = "final_answer" if not solver_name else f"{solver_name}_answer"
+
+    cols = ["sample_id", "input", answer_col]
     for m in models:
         cols.append(f"{m}_assessment")
     for m in models:
         cols.append(f"{m}_category")
     for m in models:
         cols.append(f"{m}_score")
-    # Then the tag columns
+
+    # Add tagN columns
     for i in range(max_tag_count):
         cols.append(f"tag{i+1}")
 
     csv_path = outd / f"results_{timestamp}.csv"
-
     with csv_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(cols)
 
         for row in rows:
-            # row structure: [sample_id, input, final_answer, 
-            #  <m1_assessment>.. <mN_assessment>,
-            #  <m1_category>.. <mN_category>,
-            #  <m1_score>.. <mN_score>,
-            #  tags_list
-            # ]
-            *main_cols, tags_list = row
-            # We expand tags_list into separate columns
-            tag_values = []
-            if tags_list and isinstance(tags_list, list):
-                tag_values = tags_list
-
-            # Ensure length matches max_tag_count
-            row_tags = list(tag_values) + [""] * (max_tag_count - len(tag_values))
-            final_line = list(main_cols) + row_tags
+            *core_cols, tags_list = row
+            # (core_cols includes sample_id, input, final_answer, ... model columns, scores)
+            # expand tags into columns
+            row_tags = []
+            if isinstance(tags_list, list):
+                row_tags = tags_list[:]
+            row_tags += [""] * (max_tag_count - len(row_tags))
+            final_line = list(core_cols) + row_tags
             writer.writerow(final_line)
 
     print(f"Results CSV saved to: {csv_path}")
@@ -326,10 +321,11 @@ def analyze(models, scores, cats, output_dir: str) -> None:
 
 def main():
     parser = argparse.ArgumentParser(description="Analyze evaluation logs or CSV results.")
-    parser.add_argument("--log-file", help="Path to the .eval log file")
-    parser.add_argument("--log-dir", default="./logs", help="Directory containing .eval log files")
-    parser.add_argument("--csv-file", help="Path to the CSV results file")
-    parser.add_argument("--output-dir", default="./outputs", help="Directory for output files")
+    parser.add_argument("--log-file")
+    parser.add_argument("--log-dir", default="./logs")
+    parser.add_argument("--csv-file")
+    parser.add_argument("--output-dir", default="./outputs")
+    parser.add_argument("--solver-name", default="", help="Solver model name for naming the final_answer column.")
     args = parser.parse_args()
 
     if args.csv_file:
@@ -340,13 +336,13 @@ def main():
         d = parse_eval(args.log_file, args.log_dir)
         if d.get("n", 0) > 0:
             log_filename = Path(args.log_file).name if args.log_file else ""
-            # We pass the new "max_tag_count" so write_csv can create columns for tags
             write_csv(
                 d["rows"], 
                 d["models"], 
                 args.output_dir, 
                 log_file=log_filename,
-                max_tag_count=d.get("max_tag_count", 0)
+                max_tag_count=d.get("max_tag_count", 0),
+                solver_name=args.solver_name  # pass the solver name here
             )
             analyze(d["models"], d["scores"], d["cats"], args.output_dir)
 
