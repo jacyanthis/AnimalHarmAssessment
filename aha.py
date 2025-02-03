@@ -1,22 +1,21 @@
 #!/usr/bin/env python3
 """
-Main evaluation script for the AHA benchmark.
+Evaluation script for the AHA benchmark.
 """
 
 import argparse
 import json
 import logging
 import os
-import time
 import random
-from dataclasses import dataclass
-from typing import List, Dict, Any, Set, Optional
+import time
 from pathlib import Path
+from typing import List, Dict, Any, Tuple, Set
 
+import pandas as pd
 from inspect_ai import Task, task, eval
 from inspect_ai.dataset import Sample, json_dataset
 from inspect_ai.solver import generate
-
 from scoring import SOLVER_INSTRUCTIONS, final_digit_model_graded_qa
 from utils import (
     setup_logging,
@@ -25,75 +24,118 @@ from utils import (
     write_json,
     get_latest_file,
     combine_csv_files,
+    generate_timestamp,
 )
 
-logger = setup_logging("aha", logging.INFO)
+###########################################################
+# Global Logging & Configuration
+###########################################################
 
-@dataclass
-class BenchmarkConfig:
-    """Holds configuration for the AHA benchmark."""
-    model: str
-    judges: List[str]
-    dataset_path: Path
-    output_dir: Path
-    batch_size: int
-    seed: int = 42
-    model_temperature: Optional[float] = 0.5
-    judge_temperature: Optional[float] = 0.5
-    run_analysis: bool = False
-    num_batches: int = 1
-    start_batch: int = 0
+# Declare global references so Inspect AI can read them in aha_evaluation().
+config = None
+dataset_path = None
 
-def parse_args():
-    p = argparse.ArgumentParser("AHA Benchmark")
-    p.add_argument('--model', required=True)
-    p.add_argument('--judges', default="anthropic/claude-3-5-sonnet-20241022,google/gemini-1.5-pro-002,openai/gpt-4")
-    p.add_argument('--dataset')
-    p.add_argument('--output_dir')
-    p.add_argument('--batch_size', type=int, default=100)
-    p.add_argument('--num_batches', type=int, default=1)
-    p.add_argument('--seed', type=int, default=42)
-    p.add_argument('--model_temperature', default="0.5")
-    p.add_argument('--judge_temperature', default="0.5")
-    p.add_argument('--run-analysis', action='store_true')
-    p.add_argument('--start-batch', type=int, default=0)
-    return p.parse_args()
+# Basic logging setup for this script
+setup_logging(logging.INFO)
+logging.getLogger("inspect_ai.model").setLevel(logging.INFO)
 
-def build_config(args) -> BenchmarkConfig:
-    return BenchmarkConfig(
-        model=args.model,
-        judges=args.judges.split(','),
-        dataset_path=Path(args.dataset) if args.dataset else Path("/content/aha/data_public.json"),
-        output_dir=Path(args.output_dir) if args.output_dir else Path("/content/aha/results"),
-        batch_size=args.batch_size,
-        seed=args.seed,
-        model_temperature=None if args.model_temperature.lower() == "none" else float(args.model_temperature),
-        judge_temperature=None if args.judge_temperature.lower() == "none" else float(args.judge_temperature),
-        run_analysis=args.run_analysis,
-        num_batches=args.num_batches,
-        start_batch=args.start_batch
+
+class Config:
+    """
+    Holds all command-line parameter values and derived settings
+    needed for the AHA benchmark run.
+    """
+    def __init__(self, args):
+        self.model = args.model
+        self.judges = args.judges.split(',')
+        self.dataset_path = Path(args.dataset) if args.dataset else Path("/content/aha/data_public.json")
+        self.output_dir = Path(args.output_dir) if args.output_dir else Path("/content/aha/results")
+        self.batch_size = args.batch_size
+        self.seed = args.seed
+        # Convert string to float or None
+        self.model_temperature = None if args.model_temperature.lower() == "none" else float(args.model_temperature)
+        self.judge_temperature = None if args.judge_temperature.lower() == "none" else float(args.judge_temperature)
+        self.run_analysis = args.run_analysis
+        self.num_batches = args.num_batches
+        self.current_batch = 1
+
+
+###########################################################
+# Environment & Data Setup
+###########################################################
+
+def setup_environment(conf: Config) -> None:
+    """
+    Sets up directories, random seed, and environment variable for Inspect AI.
+    """
+    mkd(conf.output_dir)
+    random.seed(conf.seed)
+    os.environ["INSPECT_EVAL_MODEL"] = conf.model
+    logging.info(
+        f"AHA benchmark with {conf.num_batches} batch(es) of size {conf.batch_size}, model={conf.model}."
     )
+    logging.info(f"max_tokens=1000, model_temperature={conf.model_temperature}, "
+                 f"judge_temperature={conf.judge_temperature}, seed={conf.seed}")
+
+
+def load_and_sample_data(conf: Config, full_data: List[Dict[str, Any]], used_indices: Set[int]) -> Tuple[Path, List[Dict[str, Any]]]:
+    """
+    Chooses a random batch of size `conf.batch_size` from `full_data`, writes
+    it to a temporary JSON file, and returns (file_path, batch_records).
+    """
+    available = set(range(len(full_data))) - used_indices
+    if len(available) < conf.batch_size:
+        used_indices.clear()
+        available = set(range(len(full_data)))
+
+    chosen_indices = random.sample(list(available), conf.batch_size)
+    used_indices.update(chosen_indices)
+    sampled = [full_data[i] for i in chosen_indices]
+
+    # Write to a "temp" subdirectory inside the output directory
+    temp_dir = conf.output_dir / "temp"
+    mkd(temp_dir)
+    sampled_file = temp_dir / f"sampled_data_batch{conf.current_batch}.json"
+    write_json(sampled_file, sampled)
+    return sampled_file, sampled
+
 
 def record_to_sample(record: Dict[str, Any]) -> Sample:
-    """Convert a JSON record to an Inspect AI Sample, storing sample_id."""
+    """
+    Convert a single record (from data_public.json) into an Inspect AI Sample.
+    Attaches sample_id to metadata so that analysis can retrieve it.
+    """
     meta = record.get("generation_tags", {}).copy()
-    meta["sample_id"] = record["sample_id"]  # keep original ID for analysis
+    meta["sample_id"] = record["sample_id"]
     return Sample(
         input=f"{record['question']} Your answer must be EXACTLY 30–40 words long.",
         target=SOLVER_INSTRUCTIONS,
         metadata=meta
     )
 
+
+###########################################################
+# Inspect AI Task Definition
+###########################################################
+
 @task
 def aha_evaluation() -> Task:
-    """Definition of the main Inspect AI evaluation task."""
+    """
+    Defines how Inspect AI loads the batch dataset, solves with a model,
+    then applies the final_digit_model_graded_qa scoring method.
+    """
     try:
         from __main__ import config, dataset_path
     except ImportError:
         global config, dataset_path
 
     dataset = json_dataset(str(dataset_path), sample_fields=record_to_sample)
-    solver_instance = generate(max_tokens=1000, temperature=config.model_temperature, cache=True)
+
+    if config.model_temperature is not None:
+        solver_instance = generate(max_tokens=1000, temperature=config.model_temperature, cache=True)
+    else:
+        solver_instance = generate(max_tokens=1000, cache=True)
+
     return Task(
         dataset=dataset,
         solver=solver_instance,
@@ -103,84 +145,120 @@ def aha_evaluation() -> Task:
         num_batches=1
     )
 
-def combine_csv_results(config: BenchmarkConfig):
-    """Combines results_*.csv files into results_combined.csv, preserving sample_id."""
-    csv_files = sorted(config.output_dir.glob('results_*.csv'))
+
+###########################################################
+# Result Combination
+###########################################################
+
+def combine_csv_results(conf: Config, full_data: List[Dict[str, Any]], start_batch: int) -> None:
+    """
+    Combines all CSV files named results_*.csv in conf.output_dir,
+    adds any tags from the dataset, then saves results_combined.csv.
+    """
+    csv_files = sorted(conf.output_dir.glob('results_*.csv'))
     if not csv_files:
-        logger.error("No CSV files found to combine.")
-        return None
+        logging.error("No CSV files found to combine.")
+        return
 
     combined_df = combine_csv_files(csv_files)
-    # Important: do NOT overwrite sample_id with a new sequence
+    start_idx = start_batch * conf.batch_size
+    # Retrieve 'tags' from each data record, if any
+    tags_list = [data.get('tags', []) for data in full_data[start_idx : start_idx + (conf.num_batches * conf.batch_size)]]
+    max_tags = max((len(tags) for tags in tags_list), default=0)
 
-    combined_path = config.output_dir / 'results_combined.csv'
+    # Create new columns in combined_df for each potential tag
+    for i in range(max_tags):
+        col = f'tag{i+1}'
+        combined_df[col] = ''
+        for idx, tags in enumerate(tags_list):
+            if idx < len(combined_df) and i < len(tags):
+                combined_df.at[idx, col] = tags[i]
+
+    combined_path = conf.output_dir / 'results_combined.csv'
     combined_df.to_csv(combined_path, index=False)
-    logger.info(f"Combined CSV saved to: {combined_path}")
-    return combined_path
+    logging.info(f"Combined CSV saved to: {combined_path}")
+
+
+###########################################################
+# Main Function
+###########################################################
 
 def main():
-    global config, dataset_path
-    args = parse_args()
-    config = build_config(args)
-    mkd(config.output_dir)
+    # Parse CLI arguments
+    parser = argparse.ArgumentParser(description="Run the AHA benchmark evaluation")
+    parser.add_argument('--model', required=True, help='Model to evaluate')
+    parser.add_argument('--judges', default="anthropic/claude-3-5-sonnet-20241022,google/gemini-1.5-pro-002,openai/gpt-4o-2024-08-06",
+                        help='Comma-separated list of judge models')
+    parser.add_argument('--dataset', help='Path to dataset JSON')
+    parser.add_argument('--output_dir', help='Directory for output files')
+    parser.add_argument('--batch_size', type=int, default=100, help='Number of samples to evaluate')
+    parser.add_argument('--num_batches', type=int, default=1, help='Number of batches to run')
+    parser.add_argument('--seed', type=int, default=42, help='Random seed')
+    parser.add_argument('--model_temperature', type=str, default="0.5", help='Temperature for model generation (or "None" to disable)')
+    parser.add_argument('--judge_temperature', type=str, default="0.5", help='Temperature for judge models (or "None" to disable)')
+    parser.add_argument('--run-analysis', action='store_true', help='Run analysis.py after evaluation')
+    parser.add_argument('--start-batch', type=int, default=0, help='Starting batch number for combining results')
 
-    # Load entire dataset
+    args = parser.parse_args()
+
+    # Make these visible to aha_evaluation() via global references
+    global config, dataset_path
+    config = Config(args)
+    setup_environment(config)
+
+    # Load full dataset
     try:
         full_data = read_json(config.dataset_path)
     except Exception as e:
-        logger.error(f"Error loading dataset: {e}")
+        logging.error(f"Error loading dataset: {e}")
         return
 
-    used_indices: Set[int] = set()
-    sampled_files = []
-    random.seed(config.seed)
-
     start_time = time.time()
-    for batch_num in range(config.num_batches):
-        available = set(range(len(full_data))) - used_indices
-        if len(available) < config.batch_size:
-            used_indices.clear()
-            available = set(range(len(full_data)))
-        chosen = random.sample(list(available), config.batch_size)
-        used_indices.update(chosen)
+    sampled_files: List[Path] = []
+    used_indices: Set[int] = set()
 
-        # Write a temp JSON with this batch
-        batch_data = [full_data[i] for i in chosen]
-        temp_dir = config.output_dir / "temp"
-        mkd(temp_dir)
-        sampled_file = temp_dir / f"sampled_data_batch{batch_num+1}.json"
-        write_json(sampled_file, batch_data)
-        sampled_files.append(sampled_file)
+    try:
+        # Loop over each requested batch
+        for batch in range(config.num_batches):
+            config.current_batch = batch + 1
 
-        dataset_path = sampled_file
-        logger.info(f"Processing batch {batch_num+1}/{config.num_batches}")
-        eval("aha_evaluation")
+            # Sample a random batch, write to a temp file
+            sampled_file, _ = load_and_sample_data(config, full_data, used_indices)
+            sampled_files.append(sampled_file)
 
-        # Immediately analyze this batch if requested
+            # Point dataset_path to this newly created batch file
+            dataset_path = sampled_file
+            logging.info(f"Processing batch {config.current_batch}/{config.num_batches}")
+            eval("aha_evaluation")
+
+            # Immediately run analysis if requested
+            if config.run_analysis:
+                log_dir = Path("./logs")
+                latest_eval = get_latest_file(log_dir, '*.eval')
+                if latest_eval:
+                    logging.info(f"Results for batch {config.current_batch}:")
+                    os.system(f"python /content/aha/analysis.py --log-file {latest_eval} --output-dir {config.output_dir}")
+
+        total_time = time.time() - start_time
+        logging.info(f"Total time for all batches: {total_time:.2f}s")
+
+        # Combine CSV results & do final analysis if requested
         if config.run_analysis:
-            log_dir = Path("./logs")
-            latest_eval = get_latest_file(log_dir, '*.eval')
-            if latest_eval:
-                logger.info(f"Results for batch {batch_num+1}:")
-                os.system(f"python /content/aha/analysis.py --log-file {latest_eval} --output-dir {config.output_dir}")
+            logging.info("Combining results from all batches...")
+            combine_csv_results(config, full_data, args.start_batch)
+            combined_path = config.output_dir / 'results_combined.csv'
+            if combined_path.exists():
+                logging.info("Running final analysis on results_combined.csv ...")
+                os.system(f"python /content/aha/analysis.py --csv-file {combined_path} --output-dir {config.output_dir}")
+            else:
+                logging.warning("results_combined.csv not found, skipping final CSV-based analysis")
 
-    total_time = time.time() - start_time
-    logger.info(f"Total time for all batches: {total_time:.2f}s")
+    finally:
+        # Clean up the temporary batch files
+        for f in sampled_files:
+            if f.exists():
+                f.unlink()
 
-    # Combine CSV from all batches + do final analysis if requested
-    if config.run_analysis:
-        logger.info("Combining results from all batches...")
-        combined_path = combine_csv_results(config)
-        if combined_path and combined_path.exists():
-            logger.info("Running final analysis on results_combined.csv ...")
-            os.system(f"python /content/aha/analysis.py --csv-file {combined_path} --output-dir {config.output_dir}")
-        else:
-            logger.warning("No combined CSV found, skipping final CSV-based analysis")
-
-    # Cleanup temp files
-    for f in sampled_files:
-        if f.exists():
-            f.unlink()
 
 if __name__ == "__main__":
     main()
