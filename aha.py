@@ -151,20 +151,23 @@ def aha_evaluation() -> Task:
 # Result Combination
 ###########################################################
 
-def combine_csv_results(conf: Config) -> None:
-    """
-    Simple function to combine all results_*.csv in conf.output_dir
-    into results_combined.csv, with no special tagging logic.
-    """
-    csv_files = sorted(conf.output_dir.glob("results_*.csv"))
+def combine_csv_results(config: Config) -> None:
+    csv_files = sorted(config.output_dir.glob('results_*.csv'))
     if not csv_files:
         logging.error("No CSV files found to combine.")
         return
 
-    combined = combine_csv_files(csv_files)
-    combined_path = conf.output_dir / "results_combined.csv"
-    combined.to_csv(combined_path, index=False)
+    combined_df = combine_csv_files(csv_files)
+
+    # Reorder columns: move any columns starting with "tag" to the end
+    tag_cols = [col for col in combined_df.columns if col.startswith("tag")]
+    non_tag_cols = [col for col in combined_df.columns if not col.startswith("tag")]
+    combined_df = combined_df[non_tag_cols + tag_cols]
+
+    combined_path = config.output_dir / 'results_combined.csv'
+    combined_df.to_csv(combined_path, index=False)
     logging.info(f"Combined CSV saved to: {combined_path}")
+
 
 ###########################################################
 # Main Function
