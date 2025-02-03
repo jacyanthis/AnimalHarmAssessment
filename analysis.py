@@ -84,7 +84,11 @@ def parse_eval(log_file: str | None, log_dir: str = "./logs") -> dict:
 
     rows = []
     for sample in log.samples:
+        # -----------------------------------------------------------------
+        # Key change: We fetch sample_id from metadata["sample_id"].
+        # Fallback remains 999999 if absent.
         sid = sample.metadata.get("sample_id", 999999)
+        # -----------------------------------------------------------------
 
         # Attempt to flatten the final assistant answer
         ans = ""
@@ -115,12 +119,14 @@ def parse_eval(log_file: str | None, log_dir: str = "./logs") -> dict:
 
         # Fill sc_scores & sc_cats
         for m in scorers:
-            sc_scores[m].append(final_scores.get(m, DFLT_SCORE))
+            sc_val = final_scores.get(m, DFLT_SCORE)
+            sc_scores[m].append(sc_val)
+
+            # detect category from bracket [A] or [B] etc
             c = cat_letter(pm_txt[m])
             sc_cats[m].append(catmap.get(c, np.nan))
 
         # Build a row: sample_id, input, final_answer
-        # Flatten sample.input & ans
         input_flat = flatten_claude_content(sample.input or "").replace("\n", " ")
         ans_flat   = flatten_claude_content(ans).replace("\n", " ")
         row = [sid, input_flat, ans_flat]
