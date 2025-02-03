@@ -52,6 +52,7 @@ aha.py – Main evaluation script.
 scoring.py – Module implementing the LLM-as-a-judge scoring function.
 analysis.py – Script for combining CSV results and analyzing benchmark outputs.
 utils.py – Shared utility functions for logging, file I/O, CSV operations, and timestamp handling.
+data_public.json - input data.
 
 ## Requirements
 Python: 3.7 or later
