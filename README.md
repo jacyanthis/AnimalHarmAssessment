@@ -43,14 +43,8 @@ Follow these steps in a Google Colab notebook to run the AHA benchmark:
    os.environ['OPENAI_API_KEY'] = userdata.get('OPENAI_API_KEY')
    !pip install inspect-ai anthropic google-generativeai openai
    
-   # 3. Run a small example batch with LLMs-as-judges (the default specified below)
-   # and analysis
-   !python /content/aha/aha.py \
-       --model 'anthropic/claude-3-5-sonnet-20241022' \
-   #   Defeult LLMs-as-judges below, uncomment and adjust as needed
-   #   --judges 'anthropic/claude-3-5-sonnet-20241022,google/gemini-1.5-pro-002,openai/gpt-4o-2024-08-06' \
-       --batch_size 2 \
-       --run-analysis
+   # 3. Run a small example batch with  analysis.
+   !python /content/aha/aha.py --model 'anthropic/claude-3-5-sonnet-20241022' --batch_size 2 --run-analysis
    ```
 
 ## Project Structure
