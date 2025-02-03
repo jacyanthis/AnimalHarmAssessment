@@ -68,18 +68,12 @@ utils.py – Shared utility functions for logging, file I/O, CSV operations, and
 data_public.json - input data.
 
 ## Requirements
-Python: 3.7 or later
-Dependencies:
-inspect-ai
-anthropic
-google-generativeai
-openai
-API Keys: Required for Anthropic, Google, and OpenAI (default LLMs-as-judges)
+Default LLMs-as-judges are Anthropic, Google, and OpenAI models. 
+Dependencies: inspect-ai anthropic google-generativeai openai.
+API Keys: Required for Anthropic, Google, and OpenAI.
 
 ## License
 This project is licensed under the MIT License.
 
 ## Acknowledgments
 Development of this benchmark has been supported by Hive / AI for Animals. The setup has been built on UK AI Safety Institute's Inspect Evals.
-
-
