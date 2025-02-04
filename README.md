@@ -62,7 +62,7 @@ Follow these steps in a Google Colab notebook to run the AHA benchmark:
    # 4.1 Small sample (default, 100 questions)
    # !python /content/aha/aha.py --model 'anthropic/claude-3-5-haiku-20241022' --run-analysis
    
-   # 4.1 Full (3045 questions)
+   # 4.2 Full sample (3045 questions)
    # !python /content/aha/aha.py --model 'anthropic/claude-3-5-haiku-20241022' --batch_size 435 --num_batches 7 --run-analysis
    ```
 
