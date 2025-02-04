@@ -46,7 +46,7 @@ Follow these steps in a Google Colab notebook to run the AHA benchmark:
    
    # 3. Run examples
    # 3.1 A simple example. The'--run-analysis' option saves & combines results in csv files.
-   # The default LLMs-as-judges are: anthropic/claude-3-5-sonnet-20241022,google/gemini-1.5-pro-002,openai/gpt-4
+   # The default three LLMs-as-judges are: anthropic/claude-3-5-sonnet-20241022,google/gemini-1.5-pro-002,openai/gpt-4o-2024-08-06
    !python /content/aha/aha.py --model 'anthropic/claude-3-5-haiku-20241022' --batch_size 2 --run-analysis
    
    # 3.2 A longer example with more options explicitly set (see aha.py for all options):
