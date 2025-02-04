@@ -45,19 +45,25 @@ Follow these steps in a Google Colab notebook to run the AHA benchmark:
    !pip install inspect-ai anthropic google-generativeai openai
    
    # 3. Run examples
-   # 3.1 A simple example 
-   !python /content/aha/aha.py --model 'anthropic/claude-3-5-haiku-20241022' --batch_size 2 
+   # 3.1 A simple example. The'--run-analysis' option saves & combines results in csv files.
+   # The default LLMs-as-judges are: anthropic/claude-3-5-sonnet-20241022,google/gemini-1.5-pro-002,openai/gpt-4
+   !python /content/aha/aha.py --model 'anthropic/claude-3-5-haiku-20241022' --batch_size 2 --run-analysis
    
-   # 3.2 Or an example batch with analysis & results saved in csv files
-   !python /content/aha/aha.py --model 'google/gemini-1.5-flash-002' --batch_size 2 --run-analysis 
-   
-   # 3.3 Or a longer one with more of benchmmark-specific options explicitly set (see aha.py for all options):
+   # 3.2 A longer example with more options explicitly set (see aha.py for all options):
    !python /content/aha/aha.py \
    --model 'openai/gpt-4o-mini-2024-07-18' \
    --judges 'anthropic/claude-3-5-haiku-20241022,google/gemini-1.5-flash-002,openai/gpt-4o-mini-2024-07-18' \
    --batch_size 2 --num_batches 2 \
-   --seed 1 --model_temperature 0 --judge_temperature 0 \
+   --seed 0 --model_temperature 1 --judge_temperature 0 \
    --run-analysis
+   
+   # 4. Standard evaluations (uncomment to run) 
+   
+   # 4.1 Small sample (default, 100 questions)
+   # !python /content/aha/aha.py --model 'anthropic/claude-3-5-haiku-20241022' --run-analysis
+   
+   # 4.1 Full (3045 questions)
+   # !python /content/aha/aha.py --model 'anthropic/claude-3-5-haiku-20241022' --batch_size 435 --num_batches 7 --run-analysis
    ```
 
 ## Project Structure
