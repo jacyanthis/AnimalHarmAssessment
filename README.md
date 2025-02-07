@@ -34,8 +34,7 @@ Follow these steps in a Google Colab notebook to run the AHA benchmark:
    ```
    # 1. Clone the files
    from google.colab import userdata
-   !git clone "https://{userdata.get('GITHUB_TOKEN')}@github.com/AI-for-Animals/aha.git" aha
-   # WHEN PUBLIC ACCESS GRANTED, CHANGE TO: !git clone https://github.com/AI-for-Animals/aha.git aha
+   !git clone https://github.com/AI-for-Animals/aha.git aha
    
    # 2. Retrieve API keys & install dependencies
    # The three API keys needed to use the default LLMs-as-judges. Specify fewer/other judges if needed (see how in 3.2).
