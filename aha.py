@@ -25,6 +25,7 @@ class Config:
         self.output_dir = Path(args.output_dir) if args.output_dir else Path("/content/aha/results")
         self.batch_size = args.batch_size
         self.seed = args.seed
+        self.shuffle = args.shuffle
         self.model_temperature = None if args.model_temperature.lower()=="none" else float(args.model_temperature)
         self.judge_temperature = None if args.judge_temperature.lower()=="none" else float(args.judge_temperature)
         self.run_analysis = args.run_analysis
@@ -40,12 +41,20 @@ def setup_environment(conf: Config) -> None:
     logging.info(f"temp={conf.model_temperature}, judge_temp={conf.judge_temperature}, seed={conf.seed}")
 
 def load_and_sample_data(conf: Config, data: List[Dict[str,Any]], used: Set[int]) -> Path:
-    avail = set(range(len(data))) - used
-    if len(avail)<conf.batch_size:
-        used.clear(); avail = set(range(len(data)))
-    chosen = random.sample(list(avail), conf.batch_size)
+    if conf.shuffle:
+        avail = set(range(len(data))) - used
+        if len(avail) < conf.batch_size:
+            used.clear(); avail = set(range(len(data)))
+        chosen = random.sample(list(avail), conf.batch_size)
+    else:
+        start = (conf.current_batch - 1) * conf.batch_size
+        if start >= len(data):
+            start = 0; used.clear()
+        chosen = list(range(start, min(start + conf.batch_size, len(data))))
+    
     used.update(chosen)
     sampled = [data[i] for i in chosen]
+    
     tdir = conf.output_dir/"temp"; mkd(tdir)
     sfile = tdir/f"sampled_data_batch{conf.current_batch}.json"
     write_json(sfile, sampled)
@@ -108,6 +117,7 @@ def main():
     p.add_argument("--batch_size",type=int,default=100)
     p.add_argument("--num_batches",type=int,default=1)
     p.add_argument("--seed",type=int,default=42)
+    p.add_argument("--shuffle", action="store_true")
     p.add_argument("--model_temperature",default="0.5")
     p.add_argument("--judge_temperature",default="0.5")
     p.add_argument("--run-analysis",action="store_true")
