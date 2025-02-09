@@ -199,40 +199,45 @@ def compute_global_stats(df: pd.DataFrame):
     return (len(model_cols), len(judge_cols), mean_val, score_dist, cat_dist, total_count)
 
 def compute_entity_stats(df: pd.DataFrame, suffix: str) -> dict:
-    entity_cols = [c for c in df.columns if c.endswith(suffix)]
-    score_cols  = [c for c in df.columns if c.endswith("_score")]
-    cat_cols    = [c for c in df.columns if c.endswith("_category")]
-
     out = {}
+    entity_cols = [c for c in df.columns if c.endswith(suffix)]
+    is_judge = suffix == "_assessment"
+    
     for col in entity_cols:
         name = col[:-len(suffix)]
         row_mask = df[col].notna() & (df[col].astype(str).str.strip()!="")
         relevant_indices = df.index[row_mask]
-
+        
         q_count = len(relevant_indices)
-        sc_count=0
-        sc_sum  =0.0
-        sc_dist = {'-1':0,'0':0,'1':0}
-        c_dist  = {}
+        sc_count = 0
+        sc_sum = 0.0
+        sc_dist = {'-1':0, '0':0, '1':0}
+        c_dist = {}
 
         for rid in relevant_indices:
-            for s_col in score_cols:
-                val = df.at[rid, s_col]
+            # For judges: look at their own scores/categories
+            # For models: look at all judges' scores/categories
+            score_cols = [f"{name}_score"] if is_judge else [f"{j}_score" for j in [c[:-11] for c in df.columns if c.endswith("_assessment")]]
+            cat_cols = [f"{name}_category"] if is_judge else [f"{j}_category" for j in [c[:-11] for c in df.columns if c.endswith("_assessment")]]
+            
+            for sc in score_cols:
+                val = df.at[rid, sc]
                 if pd.notna(val) and val in (-1,0,1):
-                    sc_sum  += val
-                    sc_count+= 1
-                    sc_dist[str(int(val))]+=1
-            for cat_col in cat_cols:
-                cat_val = str(df.at[rid,cat_col]).strip()
+                    sc_sum += val
+                    sc_count += 1
+                    sc_dist[str(int(val))] += 1
+            
+            for cc in cat_cols:
+                cat_val = str(df.at[rid, cc]).strip()
                 if cat_val in {'A','B','C','D','E'}:
-                    c_dist[cat_val] = c_dist.get(cat_val, 0)+1
+                    c_dist[cat_val] = c_dist.get(cat_val, 0) + 1
 
         out[name] = {
-          "questions": q_count,
-          "score_count": sc_count,
-          "sum_score": sc_sum,
-          "score_dist": sc_dist,
-          "cat_dist": c_dist
+            "questions": q_count,
+            "score_count": sc_count,
+            "sum_score": sc_sum,
+            "score_dist": sc_dist,
+            "cat_dist": c_dist
         }
     return out
 
