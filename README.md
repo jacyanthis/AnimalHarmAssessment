@@ -1,5 +1,3 @@
-[Note: currently repository with restricted assess, to be public]
-
 # Animal Harm Assessment (AHA) Benchmark
 
 The **Animal Harm Assessment (AHA) Benchmark** is an evaluation framework designed to assess the potential for harm to nonhuman animals in generated text by large language models (LLMs). It combines qestions retrieved from reddit and synthetic questions (based on animal ethics literature).
@@ -64,6 +62,10 @@ Follow these steps in a Google Colab notebook to run the AHA benchmark:
    
    # 4.2 Full sample (3045 questions)
    # !python /content/aha/aha.py --model 'anthropic/claude-3-5-haiku-20241022' --batch_size 435 --num_batches 7 --run-analysis
+
+   # For additional analysis, including self-preference adjustments for LLMs-as-judges, and related models:
+   # !pip install krippendorff
+   # !python /content/aha/results_summary.py
    ```
 
 ## Project Structure
