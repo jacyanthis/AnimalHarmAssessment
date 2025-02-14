@@ -17,8 +17,12 @@ def setup_logging(level: int = logging.INFO) -> None:
 def mkd(directory: Path) -> None:
     directory.mkdir(parents=True, exist_ok=True)
 
-def read_json(file_path: Path) -> Any:
-    return json.loads(file_path.read_text(encoding='utf-8'))
+def read_json(path):
+    with open(path) as f:
+        data = json.load(f)
+    if isinstance(data, dict) and "data" in data:
+        return data["data"]
+    return data
 
 def write_json(file_path: Path, data: Any) -> None:
     file_path.write_text(json.dumps(data), encoding='utf-8')
