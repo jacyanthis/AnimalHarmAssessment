@@ -1,16 +1,7 @@
-#!/usr/bin/env python3
-"""
-results_summary_short.py
-
-This script loads all CSV files matching "combined_*.csv" from a given results directory
-(e.g., "/content/aha/results"), combines them, and then computes and prints summary statistics
-for models and judges. For judges, it reports not only the overall scores count but also a breakdown
-by each model (i.e. the number of non-empty scores when a model's answer is present).
-"""
-
 import argparse
 from pathlib import Path
 import pandas as pd
+from tabulate import tabulate
 
 def compute_global_stats(df: pd.DataFrame):
     """
@@ -42,7 +33,6 @@ def compute_global_stats(df: pd.DataFrame):
                 cat_dist[c_val] = cat_dist.get(c_val, 0) + 1
 
     mean_val = total_score / total_count if total_count > 0 else 0.0
-    # Ensure alphabetical order for category distribution
     ordered_cat = {k: cat_dist.get(k, 0) for k in sorted(['A','B','C','D','E'])}
     return len(model_cols), len(judge_cols), mean_val, score_dist, ordered_cat, total_count
 
@@ -50,8 +40,6 @@ def compute_entity_stats(df: pd.DataFrame, suffix: str) -> dict:
     """
     For each entity (model or judge) determined by a column suffix,
     compute the number of questions answered, the score distribution, and category counts.
-    For models (suffix="_answer"), the stats are pooled from all judges' scores.
-    For judges (suffix="_assessment"), only the judge's own columns are used.
     """
     out = {}
     entity_cols = [c for c in df.columns if c.endswith(suffix)]
@@ -59,7 +47,6 @@ def compute_entity_stats(df: pd.DataFrame, suffix: str) -> dict:
     
     for col in entity_cols:
         name = col[:-len(suffix)]
-        # Only consider rows where the entity's column is non-empty.
         row_mask = df[col].notna() & (df[col].astype(str).str.strip() != "")
         relevant_indices = df.index[row_mask]
         
@@ -71,7 +58,6 @@ def compute_entity_stats(df: pd.DataFrame, suffix: str) -> dict:
 
         for rid in relevant_indices:
             if is_judge:
-                # For judges, use their own score and category columns.
                 score_col = f"{name}_score"
                 cat_col   = f"{name}_category"
                 if score_col in df.columns:
@@ -85,7 +71,6 @@ def compute_entity_stats(df: pd.DataFrame, suffix: str) -> dict:
                     if cat_val in {'A','B','C','D','E'}:
                         c_dist[cat_val] = c_dist.get(cat_val, 0) + 1
             else:
-                # For models, pool all judges' scores and categories.
                 judge_names = [c[:-11] for c in df.columns if c.endswith("_assessment")]
                 for j in judge_names:
                     score_col = f"{j}_score"
@@ -101,7 +86,6 @@ def compute_entity_stats(df: pd.DataFrame, suffix: str) -> dict:
                         if cat_val in {'A','B','C','D','E'}:
                             c_dist[cat_val] = c_dist.get(cat_val, 0) + 1
 
-        # Order categories alphabetically
         ordered_c_dist = {k: c_dist.get(k, 0) for k in sorted(['A','B','C','D','E'])}
         out[name] = {
             "questions": q_count,
@@ -112,48 +96,77 @@ def compute_entity_stats(df: pd.DataFrame, suffix: str) -> dict:
         }
     return out
 
-def compute_judge_model_breakdown(df: pd.DataFrame, judge: str, model_names: list) -> dict:
-    """
-    For a given judge, compute how many scores were cast for each model.
-    For each model (i.e. for each model's answer column), count the rows where:
-      - The model's answer (column "{model}_answer") is non-empty, and
-      - The judge's score (column "{judge}_score") is non-empty.
-    """
-    breakdown = {}
-    judge_score_col = f"{judge}_score"
-    if judge_score_col not in df.columns:
-        return breakdown
+def stats_to_row(name: str, stats: dict, format_type='console') -> list:
+    """Convert stats dictionary to a row for the table with percentages"""
+    total_scores = stats["score_count"]
+    total_cats = sum(stats["cat_dist"].values())
+    
+    if format_type == 'console':
+        return [
+            name,
+            stats["questions"],
+            stats["score_count"],
+            f"{stats['sum_score'] / stats['score_count']:.3f}" if stats['score_count'] > 0 else "0.000",
+            f"{(stats['score_dist']['-1'] / total_scores * 100):.1f}" if total_scores > 0 else "0.0",
+            f"{(stats['score_dist']['0'] / total_scores * 100):.1f}" if total_scores > 0 else "0.0",
+            f"{(stats['score_dist']['1'] / total_scores * 100):.1f}" if total_scores > 0 else "0.0",
+            f"{(stats['cat_dist']['A'] / total_cats * 100):.1f}" if total_cats > 0 else "0.0",
+            f"{(stats['cat_dist']['B'] / total_cats * 100):.1f}" if total_cats > 0 else "0.0",
+            f"{(stats['cat_dist']['C'] / total_cats * 100):.1f}" if total_cats > 0 else "0.0",
+            f"{(stats['cat_dist']['D'] / total_cats * 100):.1f}" if total_cats > 0 else "0.0",
+            f"{(stats['cat_dist']['E'] / total_cats * 100):.1f}" if total_cats > 0 else "0.0"
+        ]
+    else:  # latex
+        avg_score = stats['sum_score'] / stats['score_count'] if stats['score_count'] > 0 else 0.000
+        return [
+            name.replace('_', '\\_'),  # Escape underscores for LaTeX
+            f"{stats['questions']:,}",
+            f"{stats['score_count']:,}",
+            f"{avg_score:.3f}",
+            f"{(stats['score_dist']['-1'] / total_scores * 100):.1f}",
+            f"{(stats['score_dist']['0'] / total_scores * 100):.1f}",
+            f"{(stats['score_dist']['1'] / total_scores * 100):.1f}",
+            f"{(stats['cat_dist']['A'] / total_cats * 100):.1f}",
+            f"{(stats['cat_dist']['B'] / total_cats * 100):.1f}",
+            f"{(stats['cat_dist']['C'] / total_cats * 100):.1f}",
+            f"{(stats['cat_dist']['D'] / total_cats * 100):.1f}",
+            f"{(stats['cat_dist']['E'] / total_cats * 100):.1f}"
+        ]
 
-    for model in model_names:
-        model_col = f"{model}_answer"
-        if model_col in df.columns:
-            count = df[(df[model_col].notna()) & (df[judge_score_col].notna())].shape[0]
-            breakdown[model] = count
-    return breakdown
-
-def report_entity(name: str, stats: dict, breakdown: dict = None):
-    """
-    Print a summary report for a given entity (model or judge) based on its statistics.
-    If a breakdown dictionary is provided, print that too.
-    """
-    q  = stats["questions"]
-    sc = stats["score_count"]
-    total = stats["sum_score"]
-    dist = stats["score_dist"]
-    cat = stats["cat_dist"]
-    avg = (total / sc) if sc > 0 else 0.0
-
-    print(f"{name}:")
-    print(f"  Questions: {q}")
-    print(f"  Scores Count: {sc}", end='')
-    if breakdown is not None:
-        # Print breakdown per model in alphabetical order.
-        breakdown_ordered = {k: breakdown[k] for k in sorted(breakdown.keys())}
-        print(f" (by model: {breakdown_ordered})")
-    else:
-        print()
-    print(f"  Average Score: {avg:.3f} {dist}")
-    print(f"  Categories: {cat}\n")
+def format_latex_table(rows, caption, label):
+    headers = [
+        "Model", "Questions", "Scores", "Avg Score",
+        "-1 (\\%)", "0 (\\%)", "1 (\\%)",
+        "A (\\%)", "B (\\%)", "C (\\%)", "D (\\%)", "E (\\%)"
+    ]
+    
+    latex = [
+        "\\begin{table}[ht]",
+        "    \\setlength{\\tabcolsep}{4pt}",
+        "    \\small",
+        "    \\centering",
+        "    \\begin{tabular}{l|cccccccccccc}",
+        "        \\hline",
+        "        \\textbf{" + "} & \\textbf{".join(headers) + "} \\\\",
+        "        \\hline"
+    ]
+    
+    # Add data rows
+    for row in rows[:-1]:  # Exclude the total row for now
+        latex.append("        " + " & ".join(str(x) for x in row) + " \\\\")
+    
+    # Add total row with hline
+    latex.extend([
+        "        \\hline",
+        "        " + " & ".join(str(x) for x in rows[-1]) + " \\\\",
+        "        \\hline",
+        "    \\end{tabular}",
+        f"    \\caption{{{caption}}}",
+        f"    \\label{{{label}}}",
+        "\\end{table}"
+    ])
+    
+    return "\n".join(latex)
 
 def main():
     parser = argparse.ArgumentParser(
@@ -163,7 +176,7 @@ def main():
         "--input_directory",
         type=str,
         default="/content/aha/results",
-        help="Directory containing combined_*.csv files (default: /content/aha/results)"
+        help="Directory containing combined_*.csv files"
     )
     args = parser.parse_args()
 
@@ -172,13 +185,11 @@ def main():
         print(f"Directory {input_directory} does not exist.")
         return
 
-    # Find all CSV files with names starting with "combined_"
     csv_files = sorted(input_directory.glob("combined_*.csv"))
     if not csv_files:
         print(f"No combined_*.csv files found in {input_directory}.")
         return
 
-    # Load and combine all CSV files
     df_list = []
     for csv_file in csv_files:
         try:
@@ -192,32 +203,72 @@ def main():
         return
 
     combined_df = pd.concat(df_list, ignore_index=True)
-    print(f"\nCombined {len(df_list)} CSV file(s) with a total of {len(combined_df)} rows.\n")
-
-    # Global statistics
+    
+    # Compute all statistics
     nm, nj, mean_val, score_dist, cat_dist, s_count = compute_global_stats(combined_df)
-    print("Global Summary:")
-    print(f"  Total Questions: {len(combined_df)}")
-    print(f"  Total Score Count: {s_count}")
-    print(f"  Average Score: {mean_val:.3f}")
-    print(f"  Score Distribution: {score_dist}")
-    print(f"  Category Distribution: {cat_dist}\n")
-
-    # Identify all model names (from columns ending with "_answer")
-    model_names = [c[:-7] for c in combined_df.columns if c.endswith("_answer")]
-
-    # Model statistics
-    print("Model Statistics:")
     model_stats = compute_entity_stats(combined_df, "_answer")
-    for model in sorted(model_stats.keys()):
-        report_entity(model, model_stats[model])
-
-    # Judge statistics with per-model breakdown
-    print("Judge Statistics:")
     judge_stats = compute_entity_stats(combined_df, "_assessment")
-    for judge in sorted(judge_stats.keys()):
-        breakdown = compute_judge_model_breakdown(combined_df, judge, model_names)
-        report_entity(judge, judge_stats[judge], breakdown)
+
+    # Console headers
+    console_headers = [
+        "Name", "Questions", "Scores Count", "Average Score",
+        "-1 (%)", "0 (%)", "1 (%)",
+        "Cat A (%)", "Cat B (%)", "Cat C (%)", "Cat D (%)", "Cat E (%)"
+    ]
+
+    # Calculate total stats
+    def calculate_total_stats(stats_dict):
+        total_stats = {
+            "questions": sum(s["questions"] for s in stats_dict.values()),
+            "score_count": sum(s["score_count"] for s in stats_dict.values()),
+            "sum_score": sum(s["sum_score"] for s in stats_dict.values()),
+            "score_dist": {
+                k: sum(s["score_dist"][k] for s in stats_dict.values())
+                for k in ["-1", "0", "1"]
+            },
+            "cat_dist": {
+                k: sum(s["cat_dist"][k] for s in stats_dict.values())
+                for k in ["A", "B", "C", "D", "E"]
+            }
+        }
+        return total_stats
+
+    # Prepare console tables
+    model_rows_console = [stats_to_row(name, stats, 'console') for name, stats in sorted(model_stats.items())]
+    model_total = calculate_total_stats(model_stats)
+    model_rows_console.append(stats_to_row("Total", model_total, 'console'))
+
+    judge_rows_console = [stats_to_row(name, stats, 'console') for name, stats in sorted(judge_stats.items())]
+    judge_total = calculate_total_stats(judge_stats)
+    judge_rows_console.append(stats_to_row("Total", judge_total, 'console'))
+
+    # Print console tables
+    print("\nResults by Model:")
+    print(tabulate(model_rows_console, headers=console_headers, tablefmt="pipe", floatfmt=".1f"))
+    
+    print("\nResults by Judge:")
+    print(tabulate(judge_rows_console, headers=console_headers, tablefmt="pipe", floatfmt=".1f"))
+
+    # Prepare and print LaTeX tables
+    model_rows_latex = [stats_to_row(name, stats, 'latex') for name, stats in sorted(model_stats.items())]
+    model_rows_latex.append(stats_to_row("Total", model_total, 'latex'))
+    
+    judge_rows_latex = [stats_to_row(name, stats, 'latex') for name, stats in sorted(judge_stats.items())]
+    judge_rows_latex.append(stats_to_row("Total", judge_total, 'latex'))
+
+    print("\nLaTeX table for Models:")
+    print(format_latex_table(
+        model_rows_latex,
+        "Model Performance Statistics",
+        "tab:model-results"
+    ))
+    
+    print("\nLaTeX table for Judges:")
+    print(format_latex_table(
+        judge_rows_latex,
+        "Judge Performance Statistics",
+        "tab:judge-results"
+    ))
 
 if __name__ == "__main__":
     main()
