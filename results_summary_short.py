@@ -160,22 +160,22 @@ def main():
         description="Generate summary statistics from combined_*.csv files."
     )
     parser.add_argument(
-        "--results-dir",
+        "--input_directory",
         type=str,
         default="/content/aha/results",
         help="Directory containing combined_*.csv files (default: /content/aha/results)"
     )
     args = parser.parse_args()
 
-    results_dir = Path(args.results_dir)
-    if not results_dir.exists():
-        print(f"Directory {results_dir} does not exist.")
+    input_directory = Path(args.input_directory)
+    if not input_directory.exists():
+        print(f"Directory {input_directory} does not exist.")
         return
 
     # Find all CSV files with names starting with "combined_"
-    csv_files = sorted(results_dir.glob("combined_*.csv"))
+    csv_files = sorted(input_directory.glob("combined_*.csv"))
     if not csv_files:
-        print(f"No combined_*.csv files found in {results_dir}.")
+        print(f"No combined_*.csv files found in {input_directory}.")
         return
 
     # Load and combine all CSV files
