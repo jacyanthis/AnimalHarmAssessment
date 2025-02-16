@@ -32,12 +32,10 @@ def detect_judges(df):
 def get_score_column(df, model):
     """Get score column for a model using the last segment of its name."""
     model_name = model.split('/')[-1]
-    # Regex: optional prefix ending with '/' then model_name followed by '_score'
     pat = re.compile(rf"^(?:.*/)?{re.escape(model_name)}_score\s*$", re.IGNORECASE)
     for col in df.columns:
         if pat.match(col):
             return col
-    # Fallback: any column containing model_name and 'score' or 'assessment'
     for col in df.columns:
         if model_name.lower() in col.lower() and ("score" in col.lower() or "assessment" in col.lower()):
             return col
@@ -104,7 +102,6 @@ def compute_global_judge_harshness(df, judges, judge_providers):
     for model in model_names:
         model_prov = infer_provider(model)
         for j in judges:
-            # Exclude models that are related (i.e. same provider) to judge j.
             if model_prov == judge_providers[j]:
                 continue
             answer_col = f"{model}_answer"
@@ -142,7 +139,6 @@ def calculate_judge_correlations(df, judges):
                     jscores[j].append(float(row[col]))
                 except:
                     continue
-    
     counts = {j: len(jscores[j]) for j in judges}
     pair_results = []
     for i in range(len(judges)):
@@ -152,7 +148,6 @@ def calculate_judge_correlations(df, judges):
             n_obs = min(len(s1), len(s2)) if len(s1) and len(s2) else 0
             corr = pearsonr(s1[:n_obs], s2[:n_obs])[0] if n_obs else np.nan
             pair_results.append((f"{j1} vs {j2}", n_obs, corr))
-    
     jarrays = []
     if jscores:
         max_len = max(len(v) for v in jscores.values())
@@ -163,10 +158,9 @@ def calculate_judge_correlations(df, judges):
         overall_alpha = compute_krippendorff_alpha(jarrays)
     else:
         overall_alpha = np.nan
-    
     return pair_results, overall_alpha, counts
 
-def process_combined_files(directory):
+def process_combined_files(directory, calc_judge_harshness=False):
     """Process combined results files with dynamic judge count.
     
     - 'completions' is the number of input files (from the glob) that contain the <model>_answer column.
@@ -177,7 +171,6 @@ def process_combined_files(directory):
         print("No combined results files found.")
         return None, None, np.nan, np.nan
 
-    # Build union of models and count completions across files.
     models_set = set()
     completions_dict = {}
     for f in combined_files:
@@ -193,7 +186,6 @@ def process_combined_files(directory):
                 completions_dict[model] = completions_dict.get(model, 0) + 1
     models = list(models_set)
 
-    # Read and combine all files.
     dfs = []
     for f in combined_files:
         try:
@@ -206,27 +198,42 @@ def process_combined_files(directory):
         return None, None, np.nan, np.nan
     df = pd.concat(dfs, ignore_index=True)
 
-    # Get judges and judge providers from the combined DataFrame.
     judges, judge_providers = detect_judges(df)
 
-    # Compute global judge harshness (using model-level averages over unrelated models)
-    global_harshness_num, global_harshness_fmt = compute_global_judge_harshness(df, judges, judge_providers)
+    if calc_judge_harshness:
+        global_harshness_num, global_harshness_fmt = compute_global_judge_harshness(df, judges, judge_providers)
+    else:
+        # Preset (hardcoded) values (excluding non-judge entries)
+        preset = {
+            "claude-3-5-sonnet-20241022": -0.411,
+            "gemini-1.5-pro-002": 0.255,
+            "gpt-4o-2024-08-06": 0.255
+        }
+        global_harshness_num = {}
+        global_harshness_fmt = {}
+        for j in judges:
+            if j in preset:
+                global_harshness_num[j] = preset[j]
+                global_harshness_fmt[j] = f"{preset[j]:.3f} (0.000) [{preset[j]:.3f}, {preset[j]:.3f}]"
+            else:
+                global_harshness_num[j] = np.nan
+                global_harshness_fmt[j] = "n/a"
 
     results = {}
     for model in models:
         answer_col = f"{model}_answer"
         assess_col = f"{model}_assessment"
         model_rows = df[df[answer_col].notna()]
-        n_val = len(model_rows)  # number of rows with an answer
-        completions = completions_dict.get(model, 0)  # number of input files with this column
+        n_val = len(model_rows)
+        completions = completions_dict.get(model, 0)
         is_judge = assess_col in df.columns and (df[answer_col].notna() & df[assess_col].notna()).any()
         related_judge = None if is_judge else get_related_judge_for_model(model, judges, judge_providers)
         role = "JUDGE" if is_judge else ("Related" if related_judge else "independent")
 
-        raw_scores = []      # row-level raw average of all judge scores for this model
-        adjusted_scores = [] # row-level average after replacing self/related judge's score with its harshness
+        raw_scores = []      # unadjusted row-level average
+        adjusted_scores = [] # adjusted row-level average (with self/related score replaced)
         judge_data = {j: [] for j in judges}
-        sp_values = []       # self-preference differences for each row (for display)
+        sp_values = []       # for display: responsible score minus judge harshness
 
         for _, row in model_rows.iterrows():
             rjs = {}
@@ -242,7 +249,7 @@ def process_combined_files(directory):
             raw_val = np.mean(list(rjs.values())) if rjs else np.nan
             raw_scores.append(raw_val)
             
-            # Compute adjusted average: replace the score from self (or related) judge with its harshness.
+            # Build adjusted dictionary: replace self (or related) judge's score with its harshness.
             adjusted_rjs = dict(rjs)
             if role == "JUDGE":
                 judge_name = model.split('/')[-1]
@@ -254,7 +261,7 @@ def process_combined_files(directory):
             adjusted_val = np.mean(list(adjusted_rjs.values())) if adjusted_rjs else np.nan
             adjusted_scores.append(adjusted_val)
             
-            # Compute self-preference (for display): difference between the responsible score and judge harshness.
+            # Compute self-preference for display: responsible score minus harshness.
             if role == "JUDGE":
                 score_col = get_score_column(df, model)
                 if score_col and pd.notna(row[score_col]):
@@ -303,11 +310,15 @@ def process_combined_files(directory):
     final_cols = ["Role", "completions", "n", "Average Score", "Unadjusted Average Score"] + judges + ["Self-Preference", "Related Judge Harshness"]
     df_res = pd.DataFrame(results).T
     df_res = df_res[final_cols]
+    
+    # Rename header if judge harshness is calculated from data.
+    if calc_judge_harshness:
+        df_res.rename(columns={"Related Judge Harshness": "Related Judge Harshness*"}, inplace=True)
 
     df_res["AvgNumeric"] = df_res["Average Score"].apply(lambda x: float(x.split()[0]) if x != "NaN" else np.nan)
     df_res = df_res.sort_values(by="AvgNumeric", ascending=False).drop(columns=["AvgNumeric"])
 
-    # (Optional) Weighted average row remains unchanged.
+    # Weighted average row
     w_row = {"Role": "", "completions": "", "n": df_res["n"].sum()}
     for col in df_res.columns:
         if col not in ["Role", "completions", "n"]:
@@ -351,21 +362,27 @@ def process_combined_files(directory):
 def main():
     parser = argparse.ArgumentParser("Results Summary Analysis")
     parser.add_argument("--input_directory", default="/content/aha/results")
+    parser.add_argument("--calculate_judge_harshness", action="store_true", 
+                        help="If set, judge harshness is calculated from data (column header with asterisk).")
     args = parser.parse_args()
     
     pd.set_option("display.max_columns", None)
     pd.set_option("display.width", 1000)
     pd.set_option("display.expand_frame_repr", True)
     
-    df_res, corr_df, overall_corr_alpha, overall_rank_alpha = process_combined_files(args.input_directory)
+    df_res, corr_df, overall_corr_alpha, overall_rank_alpha = process_combined_files(args.input_directory, calc_judge_harshness=args.calculate_judge_harshness)
     
     if df_res is not None:
         print("\nLLM-as-a-Judge scores with pooled runs.\n")
         print(df_res)
         print("\nJudge Correlations and Ranking Correlations:")
         print(corr_df.to_string(index=False, float_format="%.3f"))
-        print(f"\nOverall Krippendorff's Alpha (Individual scores): {overall_corr_alpha:.3f}")
-        print(f"Overall Krippendorff's Alpha (Final rankings):   {overall_rank_alpha:.3f}\n")
+        print(f"\nOverall Krippendorff's Alpha (Scores to individual answers): {overall_corr_alpha:.3f}")
+        print(f"Overall Krippendorff's Alpha (Final model ranking):   {overall_rank_alpha:.3f}\n")
+        if args.calculate_judge_harshness:
+            print("*Calculated from data. Change with --calculate_judge_harshness.")
+        else:
+            print("*Preset values used. Change with --calculate_judge_harshness.")
     else:
         print("No results to display.")
 
