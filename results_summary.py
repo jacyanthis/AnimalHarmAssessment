@@ -209,8 +209,8 @@ def process_combined_files(directory, calc_judge_harshness=False):
     else:
         # Preset (hardcoded) values (excluding non-judge entries)
         preset = {
-            "claude-3-5-sonnet-20241022": -0.413,
-            "gemini-1.5-pro-002": 0.249,
+            "claude-3-5-sonnet-20241022": -0.411,
+            "gemini-1.5-pro-002": 0.255,
             "gpt-4o-2024-08-06": 0.255
         }
         global_harshness_num = {}
@@ -299,11 +299,10 @@ def process_combined_files(directory, calc_judge_harshness=False):
             "Unadjusted Average Score": mean_se_ci_str(raw_scores),   # Raw Score
             "Self-Preference": mean_se_ci_str(sp_values) if any(not np.isnan(x) for x in sp_values) else "n/a"
         }
-        # Include judge scores if needed (omitted from summary table)
+        # Include additional info
         results[model]["# Trials"] = completions
         results[model]["Questions"] = n_val
 
-        # Judge Harshness comes from preset or calculated values.
         if role == "JUDGE":
             judge_name = model.split('/')[-1]
             results[model]["Related Judge Harshness"] = global_harshness_fmt.get(judge_name, "n/a")
@@ -313,7 +312,6 @@ def process_combined_files(directory, calc_judge_harshness=False):
             results[model]["Related Judge Harshness"] = "n/a"
 
     # Reorder and rename columns for the summary table.
-    # Desired order: Model (index), Final Score, Role, Raw Score, Self-Preference, Judge Harshness, # Trials, Questions.
     ordered_cols = ["Average Score", "Role", "Unadjusted Average Score", "Self-Preference", "Related Judge Harshness", "# Trials", "Questions"]
     df_res = pd.DataFrame(results).T
     df_res = df_res[ordered_cols]
@@ -345,7 +343,7 @@ def format_final_score(s):
     Input is expected to be like:
       "0.022 (0.005) [0.012, 0.032]"
     and output:
-      "\textbf{0.022} (0.012, 0.032)"
+      "\\textbf{0.022} (0.012, 0.032)"
     """
     if s in ["NaN", "n/a"]:
         return "--"
@@ -374,10 +372,6 @@ def format_latex_summary_table(df):
     Expected columns in df (in order):
       Final Score, Role, Raw Score, Self-Preference, Judge Harshness, # Trials, Questions.
     The output table will have two header rows.
-    The first header row is:
-      Model, Final Score, Role, Raw, Self-, Judge, # Trials, Questions
-    The second header row provides:
-      (95% CI) for Final Score, and for the three split columns: Score, Preference, Harshness.
     """
     latex_lines = [
         "\\begin{table}[ht]",
@@ -392,15 +386,12 @@ def format_latex_summary_table(df):
     ]
     
     for model, row in df.iterrows():
-        # Format model name: use the last segment and remove trailing digits if any.
-        base = model.split('/')[-1]
-        base = re.sub(r"-\d+$", "", base)
-        model_name = base[0].upper() + base[1:]
+        # Use only the last segment of the model name.
+        model_name = model.split('/')[-1]
         
         # Format Role in small caps if it is 'JUDGE' or 'Related'.
         role = row["Role"]
         if role in ["JUDGE", "Related"]:
-            # Convert to lower-case and wrap in \textsc{}
             role_fmt = f"\\textsc{{{role.lower()}}}"
         else:
             role_fmt = role
@@ -433,7 +424,6 @@ def main():
                         help="Directory containing combined_*.csv files")
     parser.add_argument("--calculate_judge_harshness", action="store_true", 
                         help="If set, judge harshness is calculated from data (column header with asterisk).")
-    # New flag to output LaTeX summary table
     parser.add_argument("--latex", action="store_true",
                         help="If set, output the summary table in LaTeX format.")
     args = parser.parse_args()
