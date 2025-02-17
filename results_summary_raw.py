@@ -123,14 +123,14 @@ def stats_to_row(name: str, stats: dict, format_type='console') -> list:
             f"{stats['questions']:,}",
             f"{stats['score_count']:,}",
             f"{avg_score:.3f}",
-            f"{(stats['score_dist']['-1'] / total_scores * 100):.1f}",
-            f"{(stats['score_dist']['0'] / total_scores * 100):.1f}",
-            f"{(stats['score_dist']['1'] / total_scores * 100):.1f}",
-            f"{(stats['cat_dist']['A'] / total_cats * 100):.1f}",
-            f"{(stats['cat_dist']['B'] / total_cats * 100):.1f}",
-            f"{(stats['cat_dist']['C'] / total_cats * 100):.1f}",
-            f"{(stats['cat_dist']['D'] / total_cats * 100):.1f}",
-            f"{(stats['cat_dist']['E'] / total_cats * 100):.1f}"
+            f"{(stats['score_dist']['-1'] / total_scores * 100):.1f}" if total_scores > 0 else "0.0",
+            f"{(stats['score_dist']['0'] / total_scores * 100):.1f}" if total_scores > 0 else "0.0",
+            f"{(stats['score_dist']['1'] / total_scores * 100):.1f}" if total_scores > 0 else "0.0",
+            f"{(stats['cat_dist']['A'] / total_cats * 100):.1f}" if total_cats > 0 else "0.0",
+            f"{(stats['cat_dist']['B'] / total_cats * 100):.1f}" if total_cats > 0 else "0.0",
+            f"{(stats['cat_dist']['C'] / total_cats * 100):.1f}" if total_cats > 0 else "0.0",
+            f"{(stats['cat_dist']['D'] / total_cats * 100):.1f}" if total_cats > 0 else "0.0",
+            f"{(stats['cat_dist']['E'] / total_cats * 100):.1f}" if total_cats > 0 else "0.0"
         ]
 
 def format_latex_table(rows, caption, label):
@@ -177,6 +177,12 @@ def main():
         type=str,
         default="/content/aha/results",
         help="Directory containing combined_*.csv files"
+    )
+    # New optional argument to enable LaTeX table output
+    parser.add_argument(
+        "--latex",
+        action="store_true",
+        help="Include LaTeX table output"
     )
     args = parser.parse_args()
 
@@ -249,26 +255,27 @@ def main():
     print("\nResults by Judge:")
     print(tabulate(judge_rows_console, headers=console_headers, tablefmt="pipe", floatfmt=".1f"))
 
-    # Prepare and print LaTeX tables
-    model_rows_latex = [stats_to_row(name, stats, 'latex') for name, stats in sorted(model_stats.items())]
-    model_rows_latex.append(stats_to_row("Total", model_total, 'latex'))
+    # Print LaTeX tables only if --latex is specified
+    if args.latex:
+        model_rows_latex = [stats_to_row(name, stats, 'latex') for name, stats in sorted(model_stats.items())]
+        model_rows_latex.append(stats_to_row("Total", model_total, 'latex'))
+        
+        judge_rows_latex = [stats_to_row(name, stats, 'latex') for name, stats in sorted(judge_stats.items())]
+        judge_rows_latex.append(stats_to_row("Total", judge_total, 'latex'))
     
-    judge_rows_latex = [stats_to_row(name, stats, 'latex') for name, stats in sorted(judge_stats.items())]
-    judge_rows_latex.append(stats_to_row("Total", judge_total, 'latex'))
-
-    print("\nLaTeX table for Models:")
-    print(format_latex_table(
-        model_rows_latex,
-        "Model Performance Statistics",
-        "tab:model-results"
-    ))
-    
-    print("\nLaTeX table for Judges:")
-    print(format_latex_table(
-        judge_rows_latex,
-        "Judge Performance Statistics",
-        "tab:judge-results"
-    ))
+        print("\nLaTeX table for Models:")
+        print(format_latex_table(
+            model_rows_latex,
+            "Model Performance Statistics",
+            "tab:model-results"
+        ))
+        
+        print("\nLaTeX table for Judges:")
+        print(format_latex_table(
+            judge_rows_latex,
+            "Judge Performance Statistics",
+            "tab:judge-results"
+        ))
 
 if __name__ == "__main__":
     main()
