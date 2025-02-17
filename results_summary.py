@@ -62,12 +62,14 @@ def mean_se_ci_str(vals, rd=3):
     return f"{m:.{rd}f} ({se:.{rd}f}) [{m-1.96*se:.{rd}f}, {m+1.96*se:.{rd}f}]"
 
 def compute_krippendorff_alpha(scores):
-    """Compute Krippendorff's alpha for reliability."""
+    """Compute Krippendorff's alpha for reliability using both interval and ordinal."""
     arr = np.array(scores)
     uniq = np.unique(arr[~np.isnan(arr)])
     if uniq.size <= 1:
-        return np.nan
-    return krippendorff.alpha(reliability_data=arr, level_of_measurement='interval')
+        return np.nan, np.nan
+    interval_alpha = krippendorff.alpha(reliability_data=arr, level_of_measurement='interval')
+    ordinal_alpha = krippendorff.alpha(reliability_data=arr, level_of_measurement='ordinal')
+    return interval_alpha, ordinal_alpha
 
 def infer_provider(model):
     """Infer provider from a model name by returning the second-to-last segment if available."""
@@ -139,7 +141,7 @@ def calculate_judge_correlations(df, judges):
     """Calculate correlations between judges.
     
     For each judge pair, both Pearson and Spearman correlations are computed.
-    Also, an overall Krippendorff's alpha is computed across judges.
+    Also calculates Krippendorff's alpha across judges (both interval and ordinal).
     """
     jscores = defaultdict(list)
     for _, row in df.iterrows():
@@ -164,6 +166,8 @@ def calculate_judge_correlations(df, judges):
                 pearson_corr = np.nan
                 spearman_corr = np.nan
             pair_results.append((f"{j1} vs {j2}", n_obs, pearson_corr, spearman_corr))
+    
+    # Calculate both types of Krippendorff's alpha
     jarrays = []
     if jscores:
         max_len = max(len(v) for v in jscores.values())
@@ -171,10 +175,11 @@ def calculate_judge_correlations(df, judges):
             arr = jscores[j][:]
             arr.extend([np.nan]*(max_len-len(arr)))
             jarrays.append(arr)
-        overall_alpha = compute_krippendorff_alpha(jarrays)
+        interval_alpha, ordinal_alpha = compute_krippendorff_alpha(jarrays)
     else:
-        overall_alpha = np.nan
-    return pair_results, overall_alpha, counts
+        interval_alpha, ordinal_alpha = np.nan, np.nan
+    
+    return pair_results, (interval_alpha, ordinal_alpha), counts
 
 def process_combined_files(directory, calc_judge_harshness=False, rd=3):
     """Process combined results files with dynamic judge count.
@@ -456,31 +461,21 @@ def main():
     if result is not None:
         df_res, df, judges, judge_providers = result
 
-        # Compute judge correlations and overall Krippendorff's alpha.
-        pair_results, overall_alpha, counts = calculate_judge_correlations(df, judges)
+        # Compute judge correlations and overall Krippendorff's alphas
+        pair_results, alphas, counts = calculate_judge_correlations(df, judges)
+        interval_alpha, ordinal_alpha = alphas
         
         print("\nLLM-as-a-Judge scores with pooled runs (including rankings).\n")
         print(df_res.to_string())
         
-        # Display judge correlations and overall Krippendorff's alpha.
+        # Display judge correlations and overall Krippendorff's alphas
         print("\nJudge Correlations:")
-        print(f"Overall Krippendorff's Alpha: {overall_alpha:.3f}")
+        print(f"Overall Krippendorff's Alpha (interval): {interval_alpha:.3f}")
+        print(f"Overall Krippendorff's Alpha (ordinal): {ordinal_alpha:.3f}")
         for pair, n_obs, pearson_corr, spearman_corr in pair_results:
             pearson_fmt = f"{pearson_corr:.3f}" if not np.isnan(pearson_corr) else "nan"
             spearman_fmt = f"{spearman_corr:.3f}" if not np.isnan(spearman_corr) else "nan"
             print(f"  {pair}: n = {n_obs}, Pearson = {pearson_fmt}, Spearman = {spearman_fmt}")
-        
-        if args.calculate_judge_harshness:
-            print("\n*Calculated from data. Change with --calculate_judge_harshness.")
-        else:
-            print("\n*Preset values used. Change with --calculate_judge_harshness.")
-        
-        if args.latex:
-            latex_table = format_latex_summary_table(df_res)
-            print("\nLaTeX Summary Table:")
-            print(latex_table)
-    else:
-        print("No results to display.")
 
 if __name__ == "__main__":
     main()
