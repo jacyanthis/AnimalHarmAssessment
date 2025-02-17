@@ -65,7 +65,12 @@ Follow these steps in a Google Colab notebook to run the AHA benchmark:
 
    # For additional analysis, including self-preference adjustments for LLMs-as-judges, and related models:
    # !pip install krippendorff
+   # !python /content/aha/results_summary_raw.py
    # !python /content/aha/results_summary.py
+
+   # It can be useful to store and retrieve files remotely:
+   # from google.colab import drive
+   # drive.mount('/content/drive')
    ```
 
 ## Project Structure
