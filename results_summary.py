@@ -43,7 +43,7 @@ def get_score_column(df, model):
             return col
     return None
 
-def mean_se_ci_str(vals):
+def mean_se_ci_str(vals, rd=3):
     """Calculate mean with standard error and 95% confidence interval.
     
     If only one value is present, SE is 0 and the CI equals the value.
@@ -56,10 +56,10 @@ def mean_se_ci_str(vals):
         return "NaN"
     if len(arr) == 1:
         m = arr[0]
-        return f"{m:.3f} (0.000) [{m:.3f}, {m:.3f}]"
+        return f"{m:.{rd}f} ({0:.{rd}f}) [{m:.{rd}f}, {m:.{rd}f}]"
     m = arr.mean()
-    se = arr.std(ddof=1)/np.sqrt(len(arr))
-    return f"{m:.3f} ({se:.3f}) [{m-1.96*se:.3f}, {m+1.96*se:.3f}]"
+    se = arr.std(ddof=1) / np.sqrt(len(arr))
+    return f"{m:.{rd}f} ({se:.{rd}f}) [{m-1.96*se:.{rd}f}, {m+1.96*se:.{rd}f}]"
 
 def compute_krippendorff_alpha(scores):
     """Compute Krippendorff's alpha for reliability."""
@@ -92,7 +92,7 @@ def get_related_judge_for_model(model, judges, judge_providers):
             return j
     return None
 
-def compute_global_judge_harshness(df, judges, judge_providers):
+def compute_global_judge_harshness(df, judges, judge_providers, rd=3):
     """
     For each judge j, consider each distinct model (from _answer columns) that is unrelated 
     (i.e. infer_provider(model) != judge_providers[j]). For each such model, compute the 
@@ -125,8 +125,11 @@ def compute_global_judge_harshness(df, judges, judge_providers):
         if scores[j]:
             avg = np.mean(scores[j])
             n = len(scores[j])
-            se = np.std(scores[j], ddof=1)/np.sqrt(n) if n > 1 else 0.0
-            fmt[j] = f"{avg:.3f} (0.000) [{avg:.3f}, {avg:.3f}]" if n == 1 else f"{avg:.3f} ({se:.3f}) [{avg-1.96*se:.3f}, {avg+1.96*se:.3f}]"
+            se = np.std(scores[j], ddof=1) / np.sqrt(n) if n > 1 else 0.0
+            if n == 1:
+                fmt[j] = f"{avg:.{rd}f} ({0:.{rd}f}) [{avg:.{rd}f}, {avg:.{rd}f}]"
+            else:
+                fmt[j] = f"{avg:.{rd}f} ({se:.{rd}f}) [{avg-1.96*se:.{rd}f}, {avg+1.96*se:.{rd}f}]"
             num[j] = avg
         else:
             num[j], fmt[j] = np.nan, "n/a"
@@ -164,7 +167,7 @@ def calculate_judge_correlations(df, judges):
         overall_alpha = np.nan
     return pair_results, overall_alpha, counts
 
-def process_combined_files(directory, calc_judge_harshness=False):
+def process_combined_files(directory, calc_judge_harshness=False, rd=3):
     """Process combined results files with dynamic judge count.
     
     - 'completions' is the number of input files (from the glob) that contain the <model>_answer column.
@@ -205,7 +208,7 @@ def process_combined_files(directory, calc_judge_harshness=False):
     judges, judge_providers = detect_judges(df)
 
     if calc_judge_harshness:
-        global_harshness_num, global_harshness_fmt = compute_global_judge_harshness(df, judges, judge_providers)
+        global_harshness_num, global_harshness_fmt = compute_global_judge_harshness(df, judges, judge_providers, rd)
     else:
         # Preset (hardcoded) values (excluding non-judge entries)
         preset = {
@@ -218,7 +221,7 @@ def process_combined_files(directory, calc_judge_harshness=False):
         for j in judges:
             if j in preset:
                 global_harshness_num[j] = preset[j]
-                global_harshness_fmt[j] = f"{preset[j]:.3f} (0.000) [{preset[j]:.3f}, {preset[j]:.3f}]"
+                global_harshness_fmt[j] = f"{preset[j]:.{rd}f} ({0:.{rd}f}) [{preset[j]:.{rd}f}, {preset[j]:.{rd}f}]"
             else:
                 global_harshness_num[j] = np.nan
                 global_harshness_fmt[j] = "n/a"
@@ -295,9 +298,9 @@ def process_combined_files(directory, calc_judge_harshness=False):
 
         results[model] = {
             "Role": role,
-            "Average Score": mean_se_ci_str(adjusted_scores),      # Final Score
-            "Unadjusted Average Score": mean_se_ci_str(raw_scores),   # Raw Score
-            "Self-Preference": mean_se_ci_str(sp_values) if any(not np.isnan(x) for x in sp_values) else "n/a"
+            "Average Score": mean_se_ci_str(adjusted_scores, rd),      # Final Score
+            "Unadjusted Average Score": mean_se_ci_str(raw_scores, rd),   # Raw Score
+            "Self-Preference": mean_se_ci_str(sp_values, rd) if any(not np.isnan(x) for x in sp_values) else "n/a"
         }
         # Include additional info
         results[model]["# Trials"] = completions
@@ -426,13 +429,15 @@ def main():
                         help="If set, judge harshness is calculated from data (column header with asterisk).")
     parser.add_argument("--latex", action="store_true",
                         help="If set, output the summary table in LaTeX format.")
+    parser.add_argument("--round", type=int, default=3,
+                        help="Number of decimal places for rounding results (default: 3)")
     args = parser.parse_args()
     
     pd.set_option("display.max_columns", None)
     pd.set_option("display.width", 1000)
     pd.set_option("display.expand_frame_repr", True)
     
-    df_res = process_combined_files(args.input_directory, calc_judge_harshness=args.calculate_judge_harshness)
+    df_res = process_combined_files(args.input_directory, calc_judge_harshness=args.calculate_judge_harshness, rd=args.round)
     
     if df_res is not None:
         # For console output, change role to lower-case for judge/related.
