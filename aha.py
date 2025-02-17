@@ -92,8 +92,7 @@ def aha_evaluation() -> Task:
     )
 
 def combine_csv_results(conf: Config) -> None:
-    # Use combined_*.csv instead of results_*.csv
-    cfiles = sorted(conf.output_dir.glob("combined_*.csv"))
+    cfiles = sorted(conf.output_dir.glob("results_*.csv"))
     if not cfiles:
         logging.error("No CSV files found to combine.")
         return
