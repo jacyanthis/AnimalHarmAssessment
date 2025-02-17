@@ -460,11 +460,13 @@ def main():
     result = process_combined_files(args.input_directory, calc_judge_harshness=args.calculate_judge_harshness, rd=args.round)
     if result is not None:
         df_res, df, judges, judge_providers = result
-
+        # For console output, change role to lower-case for judge/related.
+        df_res["Role"] = df_res["Role"].apply(lambda x: x.lower() if x in ["JUDGE", "Related"] else x)
+        
         # Compute judge correlations and overall Krippendorff's alphas
         pair_results, alphas, counts = calculate_judge_correlations(df, judges)
         interval_alpha, ordinal_alpha = alphas
-        
+
         print("\nLLM-as-a-Judge scores with pooled runs (including rankings).\n")
         print(df_res.to_string())
         
