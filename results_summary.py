@@ -9,6 +9,8 @@ import krippendorff
 from collections import defaultdict
 from scipy.stats import pearsonr, spearmanr, rankdata
 
+# === Existing functions ====================================
+
 def detect_judges(df):
     """Detect judges from assessment columns.
     
@@ -45,6 +47,8 @@ def mean_se_ci_str(vals):
     """Calculate mean with standard error and 95% confidence interval.
     
     If only one value is present, SE is 0 and the CI equals the value.
+    Returns a string of the form:
+      "<mean> (<se>) [<lower>, <upper>]"
     """
     arr = np.array(vals, dtype=float)
     arr = arr[~np.isnan(arr)]
@@ -122,7 +126,7 @@ def compute_global_judge_harshness(df, judges, judge_providers):
             avg = np.mean(scores[j])
             n = len(scores[j])
             se = np.std(scores[j], ddof=1)/np.sqrt(n) if n > 1 else 0.0
-            fmt[j] = f"{avg:.3f} ({se:.3f}) [{avg-1.96*se:.3f}, {avg+1.96*se:.3f}]" if n > 1 else f"{avg:.3f} (0.000) [{avg:.3f}, {avg:.3f}]"
+            fmt[j] = f"{avg:.3f} (0.000) [{avg:.3f}, {avg:.3f}]" if n == 1 else f"{avg:.3f} ({se:.3f}) [{avg-1.96*se:.3f}, {avg+1.96*se:.3f}]"
             num[j] = avg
         else:
             num[j], fmt[j] = np.nan, "n/a"
@@ -169,7 +173,7 @@ def process_combined_files(directory, calc_judge_harshness=False):
     combined_files = [f for f in glob.glob(os.path.join(directory, 'combined_*.csv'))]
     if not combined_files:
         print("No combined results files found.")
-        return None, None, np.nan, np.nan
+        return None
 
     models_set = set()
     completions_dict = {}
@@ -195,7 +199,7 @@ def process_combined_files(directory, calc_judge_harshness=False):
             print(f"Error reading {f}: {e}")
             continue
     if not dfs:
-        return None, None, np.nan, np.nan
+        return None
     df = pd.concat(dfs, ignore_index=True)
 
     judges, judge_providers = detect_judges(df)
@@ -291,14 +295,14 @@ def process_combined_files(directory, calc_judge_harshness=False):
 
         results[model] = {
             "Role": role,
-            "completions": completions,
-            "n": n_val,
-            "Average Score": mean_se_ci_str(adjusted_scores),  # adjusted average
-            "Unadjusted Average Score": mean_se_ci_str(raw_scores)
+            "Average Score": mean_se_ci_str(adjusted_scores),      # Final Score
+            "Unadjusted Average Score": mean_se_ci_str(raw_scores),   # Raw Score
+            "Self-Preference": mean_se_ci_str(sp_values) if any(not np.isnan(x) for x in sp_values) else "n/a"
         }
-        for j in judges:
-            results[model][j] = mean_se_ci_str(judge_data[j])
-        results[model]["Self-Preference"] = mean_se_ci_str(sp_values) if any(not np.isnan(x) for x in sp_values) else "n/a"
+        # Include additional info
+        results[model]["# Trials"] = completions
+        results[model]["Questions"] = n_val
+
         if role == "JUDGE":
             judge_name = model.split('/')[-1]
             results[model]["Related Judge Harshness"] = global_harshness_fmt.get(judge_name, "n/a")
@@ -307,82 +311,145 @@ def process_combined_files(directory, calc_judge_harshness=False):
         else:
             results[model]["Related Judge Harshness"] = "n/a"
 
-    final_cols = ["Role", "completions", "n", "Average Score", "Unadjusted Average Score"] + judges + ["Self-Preference", "Related Judge Harshness"]
+    # Reorder and rename columns for the summary table.
+    ordered_cols = ["Average Score", "Role", "Unadjusted Average Score", "Self-Preference", "Related Judge Harshness", "# Trials", "Questions"]
     df_res = pd.DataFrame(results).T
-    df_res = df_res[final_cols]
+    df_res = df_res[ordered_cols]
+    df_res.rename(columns={
+        "Average Score": "Final Score",
+        "Unadjusted Average Score": "Raw Score",
+        "Related Judge Harshness": "Judge Harshness"
+    }, inplace=True)
     
-    # Rename header if judge harshness is calculated from data.
-    if calc_judge_harshness:
-        df_res.rename(columns={"Related Judge Harshness": "Related Judge Harshness*"}, inplace=True)
+    # For sorting by Final Score, extract its numeric value.
+    def extract_score(s):
+        try:
+            return float(s.split()[0])
+        except:
+            return np.nan
+    df_res["FinalScoreNum"] = df_res["Final Score"].apply(extract_score)
+    df_res = df_res.sort_values(by="FinalScoreNum", ascending=False).drop(columns=["FinalScoreNum"])
+    
+    # Format the Questions column with commas.
+    df_res["Questions"] = df_res["Questions"].apply(lambda x: f"{x:,}")
+    
+    return df_res
 
-    df_res["AvgNumeric"] = df_res["Average Score"].apply(lambda x: float(x.split()[0]) if x != "NaN" else np.nan)
-    df_res = df_res.sort_values(by="AvgNumeric", ascending=False).drop(columns=["AvgNumeric"])
+# === Functions for LaTeX table formatting ===================
 
-    # Weighted average row
-    w_row = {"Role": "", "completions": "", "n": df_res["n"].sum()}
-    for col in df_res.columns:
-        if col not in ["Role", "completions", "n"]:
-            scores = []
-            for _, row in df_res.iterrows():
-                try:
-                    n_val = int(row["n"])
-                    m_val = float(row.get(col, "NaN").split()[0]) if row.get(col, "NaN") != "NaN" else np.nan
-                    if not np.isnan(m_val):
-                        scores.extend([m_val] * n_val)
-                except:
-                    continue
-            w_row[col] = mean_se_ci_str(scores) if scores else "NaN"
-    df_res.loc["Weighted Average"] = w_row
+def format_final_score(s):
+    """
+    Reformat the adjusted average score string.
+    Input is expected to be like:
+      "0.022 (0.005) [0.012, 0.032]"
+    and output:
+      "\\textbf{0.022} (0.012, 0.032)"
+    """
+    if s in ["NaN", "n/a"]:
+        return "--"
+    m = re.match(r"([\d\.\-]+)\s+\([\d\.\-]+\)\s+\[([\d\.\-]+),\s*([\d\.\-]+)\]", s)
+    if m:
+        main, low, high = m.groups()
+        return f"\\textbf{{{main}}} ({low}, {high})"
+    return s
 
-    pair_results, overall_corr_alpha, _ = calculate_judge_correlations(df, judges)
-    corr_table = []
-    for pair, n_obs, corr in pair_results:
-        j1, j2 = pair.split(" vs ")
-        x = df_res.loc[df_res.index != "Weighted Average", j1].apply(lambda x: float(x.split()[0]) if x != "NaN" else np.nan).values
-        y = df_res.loc[df_res.index != "Weighted Average", j2].apply(lambda x: float(x.split()[0]) if x != "NaN" else np.nan).values
-        rank_corr = spearmanr(x, y)[0] if len(x) > 0 and len(y) > 0 else np.nan
-        corr_table.append({
-            "Judge Pair": pair,
-            "n": n_obs,
-            "Correlation": corr,
-            "Ranking Correlation": rank_corr
-        })
-    corr_df = pd.DataFrame(corr_table)
+def format_simple_score(s):
+    """
+    Extract the main score (the first number) from strings of the form:
+       "0.044 (0.011) [0.047, 0.089]"
+    If not parseable, return "--".
+    """
+    if s in ["NaN", "n/a"]:
+        return "--"
+    try:
+        return s.split()[0]
+    except:
+        return s
 
-    ranking_matrix = []
-    models_rank = df_res.index[df_res.index != "Weighted Average"]
-    for j in judges:
-        scores = df_res.loc[models_rank, j].apply(lambda x: float(x.split()[0]) if x != "NaN" else np.nan).values
-        ranks = rankdata(scores) if len(scores) > 0 else np.array([])
-        ranking_matrix.append(ranks)
-    overall_rank_alpha = compute_krippendorff_alpha(ranking_matrix) if ranking_matrix and ranking_matrix[0].size > 0 else np.nan
+def format_latex_summary_table(df):
+    """
+    Format a LaTeX table for the summary results.
+    Expected columns in df (in order):
+      Final Score, Role, Raw Score, Self-Preference, Judge Harshness, # Trials, Questions.
+    The output table will have two header rows.
+    """
+    latex_lines = [
+        "\\begin{table}[ht]",
+        "    \\setlength{\\tabcolsep}{6pt}",
+        "    \\small",
+        "    \\centering",
+        "    \\begin{tabular}{lccccccc}",
+        "        \\hline",
+        "        \\textbf{Model} & \\textbf{Final Score} & \\textbf{Role} & \\textbf{Raw} & \\textbf{Self-} & \\textbf{Judge} & \\textbf{\\# Trials} & \\textbf{Questions} \\\\",
+        "         & \\textbf{(95\\% CI)} &  & \\textbf{Score} & \\textbf{Preference} & \\textbf{Harshness} &  &  \\\\",
+        "        \\hline"
+    ]
+    
+    for model, row in df.iterrows():
+        # Use only the last segment of the model name.
+        model_name = model.split('/')[-1]
+        
+        # Format Role in small caps if it is 'JUDGE' or 'Related'.
+        role = row["Role"]
+        if role in ["JUDGE", "Related"]:
+            role_fmt = f"\\textsc{{{role.lower()}}}"
+        else:
+            role_fmt = role
+        
+        final_score = format_final_score(row["Final Score"])
+        raw_score = format_simple_score(row["Raw Score"])
+        selfpref = format_simple_score(row["Self-Preference"])
+        judge_harsh = format_simple_score(row["Judge Harshness"])
+        trials = str(row["# Trials"])
+        questions = row["Questions"]
+        
+        line = f"{model_name} & {final_score} & {role_fmt} & {raw_score} & {selfpref} & {judge_harsh} & {trials} & {questions} \\\\"
+        latex_lines.append("        " + line)
+    
+    latex_lines.extend([
+        "        \\hline",
+        "    \\end{tabular}",
+        "    \\caption{\\textbf{Scores on the AHA benchmark.} Self-preference bias for compact models (e.g., Claude-3.5-Haiku) are based on the larger version of the model that we use as a judge (e.g., Claude-3.5-Sonnet). Final Score = Raw Score $-$ (Self-Preference $\\div$ 3).}",
+        "    \\label{tab:judges}",
+        "\\end{table}"
+    ])
+    
+    return "\n".join(latex_lines)
 
-    return df_res, corr_df, overall_corr_alpha, overall_rank_alpha
+# === Main ===================================================
 
 def main():
     parser = argparse.ArgumentParser("Results Summary Analysis")
-    parser.add_argument("--input_directory", default="/content/aha/results")
+    parser.add_argument("--input_directory", default="/content/aha/results",
+                        help="Directory containing combined_*.csv files")
     parser.add_argument("--calculate_judge_harshness", action="store_true", 
                         help="If set, judge harshness is calculated from data (column header with asterisk).")
+    parser.add_argument("--latex", action="store_true",
+                        help="If set, output the summary table in LaTeX format.")
     args = parser.parse_args()
     
     pd.set_option("display.max_columns", None)
     pd.set_option("display.width", 1000)
     pd.set_option("display.expand_frame_repr", True)
     
-    df_res, corr_df, overall_corr_alpha, overall_rank_alpha = process_combined_files(args.input_directory, calc_judge_harshness=args.calculate_judge_harshness)
+    df_res = process_combined_files(args.input_directory, calc_judge_harshness=args.calculate_judge_harshness)
     
     if df_res is not None:
+        # For console output, change role to lower-case for judge/related.
+        df_res["Role"] = df_res["Role"].apply(lambda x: x.lower() if x in ["JUDGE", "Related"] else x)
+        
         print("\nLLM-as-a-Judge scores with pooled runs.\n")
-        print(df_res)
-        print("\nJudge Correlations and Ranking Correlations:")
-        print(corr_df.to_string(index=False, float_format="%.3f"))
-        print(f"\nOverall Krippendorff's Alpha (Scores to individual answers): {overall_corr_alpha:.3f}")
-        print(f"Overall Krippendorff's Alpha (Final model ranking):   {overall_rank_alpha:.3f}\n")
+        print(df_res.to_string())
+        
         if args.calculate_judge_harshness:
-            print("*Calculated from data. Change with --calculate_judge_harshness.")
+            print("\n*Calculated from data. Change with --calculate_judge_harshness.")
         else:
-            print("*Preset values used. Change with --calculate_judge_harshness.")
+            print("\n*Preset values used. Change with --calculate_judge_harshness.")
+        
+        if args.latex:
+            latex_table = format_latex_summary_table(df_res)
+            print("\nLaTeX Summary Table:")
+            print(latex_table)
     else:
         print("No results to display.")
 
