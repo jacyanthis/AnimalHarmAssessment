@@ -6,9 +6,17 @@ import argparse, logging, os, random, time
 from pathlib import Path
 from typing import List, Dict, Any, Set
 import pandas as pd
+
+# --------------------------
+# 1) Force the same event loop to stay open via nest_asyncio
+import nest_asyncio
+nest_asyncio.apply()
+# --------------------------
+
 from inspect_ai import Task, task, eval
 from inspect_ai.dataset import Sample, json_dataset
 from inspect_ai.solver import generate
+
 from scoring import SOLVER_INSTRUCTIONS, final_digit_model_graded_qa
 from utils import (
     setup_logging, mkd, read_json, write_json,
@@ -17,6 +25,7 @@ from utils import (
 
 setup_logging(logging.INFO)
 logging.getLogger("inspect_ai.model").setLevel(logging.INFO)
+
 config = None
 dataset_path = None
 
@@ -55,10 +64,10 @@ def load_and_sample_data(conf: Config, data: List[Dict[str,Any]], used: Set[int]
         if start >= len(data):
             start = 0; used.clear()
         chosen = list(range(start, min(start + conf.batch_size, len(data))))
-    
+
     used.update(chosen)
     sampled = [data[i] for i in chosen]
-    
+
     tdir = conf.output_dir/"temp"; mkd(tdir)
     sfile = tdir/f"sampled_data_batch{conf.current_batch}.json"
     write_json(sfile, sampled)
@@ -80,8 +89,13 @@ def aha_evaluation() -> Task:
         from __main__ import config, dataset_path
     except ImportError:
         global config, dataset_path
+
     ds = json_dataset(str(dataset_path), sample_fields=record_to_sample)
-    temp = generate(max_tokens=1000, temperature=config.model_temperature, cache=True) if config.model_temperature else generate(max_tokens=1000, cache=True)
+    if config.model_temperature is not None:
+        temp = generate(max_tokens=1000, temperature=config.model_temperature, cache=True)
+    else:
+        temp = generate(max_tokens=1000, cache=True)
+
     return Task(
         dataset=ds,
         solver=temp,
@@ -126,7 +140,7 @@ def main():
     p.add_argument("--judge_temperature", default="0.5")
     p.add_argument("--run-analysis", action="store_true")
     p.add_argument("--start-batch", type=int, default=0)
-    p.add_argument("--calculate_judge_harshness", action="store_true", help="If set, judge harshness is calculated from data (passed to analysis).")
+    p.add_argument("--calculate_judge_harshness", action="store_true", help="If set, judge harshness is calculated from data.")
     args = p.parse_args()
 
     global config, dataset_path
@@ -141,43 +155,58 @@ def main():
 
     used_indices = set()
     sampled_files = []
-    start = time.time()
+    start_time = time.time()
 
     try:
         for b in range(config.num_batches):
-            config.current_batch = b+1
+            config.current_batch = b + 1
+
             sfile = load_and_sample_data(config, full_data, used_indices)
             sampled_files.append(sfile)
             dataset_path = sfile
+
             logging.info(f"Processing batch {config.current_batch}/{config.num_batches}")
-            eval("aha_evaluation")
+            eval("aha_evaluation")  # uses the nest_asyncio-patched loop
+
             if config.run_analysis:
                 ldir = Path("./logs")
                 latest = get_latest_file(ldir, "*.eval")
                 if latest:
-                    cmd = f"python /content/aha/analysis.py --log-file {latest} --output-dir {config.output_dir} --solver-name '{config.model}'"
+                    cmd = (
+                        f"python /content/aha/analysis.py "
+                        f"--log-file {latest} "
+                        f"--output-dir {config.output_dir} "
+                        f"--solver-name '{config.model}'"
+                    )
                     if config.calculate_judge_harshness:
                         cmd += " --calculate_judge_harshness"
                     logging.info(f"Results for batch {config.current_batch}:")
                     os.system(cmd)
-        dt = time.time()-start
+
+        dt = time.time() - start_time
         logging.info(f"Total time: {dt:.2f}s")
+
         if config.run_analysis:
             logging.info("Combining results...")
             combine_csv_results(config)
-            cpath = config.output_dir/"combined_results.csv"
+            cpath = config.output_dir / "combined_results.csv"
             if cpath.exists():
                 logging.info("Final analysis on combined_results.csv...")
-                cmd = f"python /content/aha/analysis.py --csv-file {cpath} --output-dir {config.output_dir}"
+                cmd = (
+                    f"python /content/aha/analysis.py "
+                    f"--csv-file {cpath} "
+                    f"--output-dir {config.output_dir}"
+                )
                 if config.calculate_judge_harshness:
                     cmd += " --calculate_judge_harshness"
                 os.system(cmd)
             else:
                 logging.warning("No combined CSV found.")
+
     finally:
         for f in sampled_files:
             if f.exists():
                 f.unlink()
 
-if __name__=="__main__":
+if __name__ == "__main__":
     main()
