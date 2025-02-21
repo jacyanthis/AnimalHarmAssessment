@@ -41,6 +41,8 @@ Follow these steps in a Google Colab notebook to run the AHA benchmark:
    os.environ['GOOGLE_API_KEY'] = userdata.get('GOOGLE_API_KEY')
    os.environ['OPENAI_API_KEY'] = userdata.get('OPENAI_API_KEY')
    !pip install inspect-ai anthropic google-generativeai openai
+   !pip install --upgrade google-genai
+
    
    # 3. Run examples
    # 3.1 A simple example. The'--run-analysis' option saves & combines results in csv files.
