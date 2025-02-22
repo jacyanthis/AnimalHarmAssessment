@@ -60,7 +60,7 @@ def load_and_sample_data(conf: Config, data: List[Dict[str,Any]], used: Set[int]
             used.clear(); avail = set(range(len(data)))
         chosen = random.sample(list(avail), conf.batch_size)
     else:
-        start = (conf.current_batch - 1) * conf.batch_size
+        start = (conf.start_batch + conf.current_batch - 1) * conf.batch_size
         if start >= len(data):
             start = 0; used.clear()
         chosen = list(range(start, min(start + conf.batch_size, len(data))))
