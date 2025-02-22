@@ -24,6 +24,7 @@ class Config:
     def __init__(self, args):
         self.model = args.model
         self.judges = args.judges.split(',')
+        self.openai_base_url = args.openai_base_url  # New parameter
         self.dataset_path = Path(args.dataset) if args.dataset else Path("/content/aha/data_public.json")
         self.output_dir = Path(args.output_dir) if args.output_dir else Path("/content/aha/results")
         self.batch_size = args.batch_size
@@ -36,11 +37,21 @@ class Config:
         self.start_batch = args.start_batch
         self.current_batch = 1
         self.calculate_judge_harshness = args.calculate_judge_harshness
+        self.openai_base_url = args.openai_base_url
 
 def setup_environment(conf: Config) -> None:
     mkd(conf.output_dir)
     random.seed(conf.seed)
+    
+    # Set model environment variable
     os.environ["INSPECT_EVAL_MODEL"] = conf.model
+    
+    # Handle custom OpenAI-compatible endpoints
+    if conf.openai_base_url:
+        os.environ["OPENAI_BASE_URL"] = conf.openai_base_url
+        if not os.environ.get("OPENAI_API_KEY"):
+            raise ValueError("OPENAI_API_KEY environment variable must be set when using custom OpenAI-compatible endpoints")
+    
     logging.info(f"AHA: {conf.num_batches}x{conf.batch_size}, model={conf.model}")
     logging.info(f"temp={conf.model_temperature}, judge_temp={conf.judge_temperature}, seed={conf.seed}")
 
@@ -81,7 +92,7 @@ def aha_evaluation() -> Task:
     except ImportError:
         global config, dataset_path
     ds = json_dataset(str(dataset_path), sample_fields=record_to_sample)
-    temp = generate(max_tokens=1000, temperature=config.model_temperature, cache=True) if config.model_temperature else generate(max_tokens=1000, cache=True)
+    temp = generate(max_tokens=1000, temperature=config.model_temperature, seed=config.seed, cache=True) if (config.model_temperature and config.seed) else generate(max_tokens=1000, cache=True)
     return Task(
         dataset=ds,
         solver=temp,
@@ -115,6 +126,8 @@ def combine_csv_results(conf: Config) -> None:
 def main():
     p = argparse.ArgumentParser("AHA Benchmark")
     p.add_argument("--model", required=True)
+    p.add_argument("--openai-base-url", 
+                  help="Base URL for OpenAI-compatible endpoints (e.g., HuggingFace inference endpoints)")
     p.add_argument("--judges", default="anthropic/claude-3-5-sonnet-20241022,google/gemini-1.5-pro-002,openai/gpt-4o-2024-08-06")
     p.add_argument("--dataset")
     p.add_argument("--output_dir")
