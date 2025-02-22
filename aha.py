@@ -28,7 +28,7 @@ class Config:
     def __init__(self, args):
         self.model = args.model
         self.judges = args.judges.split(',')
-        self.openai_base_url = args.openai_base_url  # From collaborator
+        self.openai_base_url = args.openai_base_url
         self.dataset_path = Path(args.dataset) if args.dataset else Path("/content/aha/data_public.json")
         self.output_dir = Path(args.output_dir) if args.output_dir else Path("/content/aha/results")
         self.batch_size = args.batch_size
@@ -41,6 +41,7 @@ class Config:
         self.start_batch = args.start_batch
         self.current_batch = 1
         self.calculate_judge_harshness = args.calculate_judge_harshness
+        self.openai_base_url = args.openai_base_url
 
 def setup_environment(conf: Config) -> None:
     mkd(conf.output_dir)
@@ -97,7 +98,6 @@ def aha_evaluation() -> Task:
     
     ds = json_dataset(str(dataset_path), sample_fields=record_to_sample)
     temp = generate(max_tokens=1000, temperature=config.model_temperature, seed=config.seed, cache=True) if (config.model_temperature and config.seed) else generate(max_tokens=1000, cache=True)
-    
     return Task(
         dataset=ds,
         solver=temp,
