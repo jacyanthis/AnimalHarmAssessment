@@ -7,16 +7,12 @@ from pathlib import Path
 from typing import List, Dict, Any, Set
 import pandas as pd
 
-# --------------------------
-# 1) Force the same event loop to stay open via nest_asyncio
 import nest_asyncio
 nest_asyncio.apply()
-# --------------------------
 
 from inspect_ai import Task, task, eval
 from inspect_ai.dataset import Sample, json_dataset
 from inspect_ai.solver import generate
-
 from scoring import SOLVER_INSTRUCTIONS, final_digit_model_graded_qa
 from utils import (
     setup_logging, mkd, read_json, write_json,
@@ -25,7 +21,6 @@ from utils import (
 
 setup_logging(logging.INFO)
 logging.getLogger("inspect_ai.model").setLevel(logging.INFO)
-
 config = None
 dataset_path = None
 
@@ -33,6 +28,7 @@ class Config:
     def __init__(self, args):
         self.model = args.model
         self.judges = args.judges.split(',')
+        self.openai_base_url = args.openai_base_url  # From collaborator
         self.dataset_path = Path(args.dataset) if args.dataset else Path("/content/aha/data_public.json")
         self.output_dir = Path(args.output_dir) if args.output_dir else Path("/content/aha/results")
         self.batch_size = args.batch_size
@@ -49,7 +45,16 @@ class Config:
 def setup_environment(conf: Config) -> None:
     mkd(conf.output_dir)
     random.seed(conf.seed)
+    
+    # Set model environment variable
     os.environ["INSPECT_EVAL_MODEL"] = conf.model
+    
+    # Handle custom OpenAI-compatible endpoints
+    if conf.openai_base_url:
+        os.environ["OPENAI_BASE_URL"] = conf.openai_base_url
+        if not os.environ.get("OPENAI_API_KEY"):
+            raise ValueError("OPENAI_API_KEY environment variable must be set when using custom OpenAI-compatible endpoints")
+    
     logging.info(f"AHA: {conf.num_batches}x{conf.batch_size}, model={conf.model}")
     logging.info(f"temp={conf.model_temperature}, judge_temp={conf.judge_temperature}, seed={conf.seed}")
 
@@ -64,10 +69,10 @@ def load_and_sample_data(conf: Config, data: List[Dict[str,Any]], used: Set[int]
         if start >= len(data):
             start = 0; used.clear()
         chosen = list(range(start, min(start + conf.batch_size, len(data))))
-
+    
     used.update(chosen)
     sampled = [data[i] for i in chosen]
-
+    
     tdir = conf.output_dir/"temp"; mkd(tdir)
     sfile = tdir/f"sampled_data_batch{conf.current_batch}.json"
     write_json(sfile, sampled)
@@ -89,13 +94,10 @@ def aha_evaluation() -> Task:
         from __main__ import config, dataset_path
     except ImportError:
         global config, dataset_path
-
+    
     ds = json_dataset(str(dataset_path), sample_fields=record_to_sample)
-    if config.model_temperature is not None:
-        temp = generate(max_tokens=1000, temperature=config.model_temperature, cache=True)
-    else:
-        temp = generate(max_tokens=1000, cache=True)
-
+    temp = generate(max_tokens=1000, temperature=config.model_temperature, seed=config.seed, cache=True) if (config.model_temperature and config.seed) else generate(max_tokens=1000, cache=True)
+    
     return Task(
         dataset=ds,
         solver=temp,
@@ -129,6 +131,8 @@ def combine_csv_results(conf: Config) -> None:
 def main():
     p = argparse.ArgumentParser("AHA Benchmark")
     p.add_argument("--model", required=True)
+    p.add_argument("--openai-base-url", 
+                  help="Base URL for OpenAI-compatible endpoints (e.g., HuggingFace inference endpoints)")
     p.add_argument("--judges", default="anthropic/claude-3-5-sonnet-20241022,google/gemini-1.5-pro-002,openai/gpt-4o-2024-08-06")
     p.add_argument("--dataset")
     p.add_argument("--output_dir")
@@ -160,14 +164,14 @@ def main():
     try:
         for b in range(config.num_batches):
             config.current_batch = b + 1
-
+            
             sfile = load_and_sample_data(config, full_data, used_indices)
             sampled_files.append(sfile)
             dataset_path = sfile
-
+            
             logging.info(f"Processing batch {config.current_batch}/{config.num_batches}")
             eval("aha_evaluation")  # uses the nest_asyncio-patched loop
-
+            
             if config.run_analysis:
                 ldir = Path("./logs")
                 latest = get_latest_file(ldir, "*.eval")
@@ -182,14 +186,14 @@ def main():
                         cmd += " --calculate_judge_harshness"
                     logging.info(f"Results for batch {config.current_batch}:")
                     os.system(cmd)
-
+        
         dt = time.time() - start_time
         logging.info(f"Total time: {dt:.2f}s")
-
+        
         if config.run_analysis:
             logging.info("Combining results...")
             combine_csv_results(config)
-            cpath = config.output_dir / "combined_results.csv"
+            cpath = config.output_dir/"combined_results.csv"
             if cpath.exists():
                 logging.info("Final analysis on combined_results.csv...")
                 cmd = (
@@ -202,7 +206,7 @@ def main():
                 os.system(cmd)
             else:
                 logging.warning("No combined CSV found.")
-
+    
     finally:
         for f in sampled_files:
             if f.exists():
