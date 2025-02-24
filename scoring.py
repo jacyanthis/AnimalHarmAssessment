@@ -60,7 +60,7 @@ SOLVER_INSTRUCTIONS = (
 )
 
 @scorer(metrics={"*": [mean()]})
-def final_digit_model_graded_qa(scorer_models: List[str], judge_temperature: float = 0.5):
+def final_digit_model_graded_qa(scorer_models: List[str], judge_temperature: float = 0.0):
     """
     Calls multiple judge models, each returning a bracketed category [A-E]
     in line 1 and bracketed score [-1..1] in line 3. If invalid, 0 is used.
