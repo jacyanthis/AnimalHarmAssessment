@@ -164,7 +164,7 @@ def calculate_cluster_metrics(base_path):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Calculate and plot cluster metrics from CSV files.")
-    parser.add_argument("--input_directory", type=str, default="/content/drive/MyDrive/eval_outputs",
+    parser.add_argument("--input_directory", type=str, default="/content/aha/results",
                         help="Base directory containing CSV files starting with 'combined_'")
     args = parser.parse_args()
     base_path = args.input_directory
