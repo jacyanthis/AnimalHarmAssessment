@@ -5,7 +5,7 @@ The **Animal Harm Assessment (AHA) Benchmark** is an evaluation framework design
 For more information, see preprint: 
 https://drive.google.com/file/d/1JWIGyviy10pMesfx8hF6XAAajnAxEdg3/view?usp=sharing 
 
-For a short overeview, see presentation:
+For a short overeview, see presentation: 
 https://docs.google.com/presentation/d/1SN6QlBIgAJ1zQd0HuiQTVLtXkJGplNCbHsrs2LcEnog/edit?usp=sharing
 
 ---
