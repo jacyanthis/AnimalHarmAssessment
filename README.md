@@ -2,6 +2,11 @@
 
 The **Animal Harm Assessment (AHA) Benchmark** is an evaluation framework designed to assess the potential for harm to nonhuman animals in generated text by large language models (LLMs). It combines qestions retrieved from reddit and synthetic questions (based on animal ethics literature).
 
+For more information, see preprint: 
+https://drive.google.com/file/d/1JWIGyviy10pMesfx8hF6XAAajnAxEdg3/view?usp=sharing
+For a short overeview, see presentation:
+https://docs.google.com/presentation/d/1SN6QlBIgAJ1zQd0HuiQTVLtXkJGplNCbHsrs2LcEnog/edit?usp=sharing
+
 ---
 
 ## Overview
@@ -69,6 +74,11 @@ Follow these steps in a Google Colab notebook to run the AHA benchmark:
    # !pip install krippendorff
    # !python /content/aha/results_summary_raw.py
    # !python /content/aha/results_summary.py
+
+   # More scripts for analysis:
+   # !python /content/aha/tag_analysis.py
+   # !python /content/aha/figures_final.py #NB! Uses hardcoded values.
+   # !python /content/aha/pairwise_comparison.py #NB!BETA. Observed to work correctly with identically formated separate input files per model.  
 
    # It can be useful to store and retrieve files remotely:
    # from google.colab import drive
