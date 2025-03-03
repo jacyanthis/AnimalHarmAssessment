@@ -126,8 +126,10 @@ def final_digit_model_graded_qa(scorer_models: List[str], judge_temperature: flo
                     "[END DATA]"
                 )
                 messages = [ChatMessageUser(content=prompt)]
-                # Use judge_temperature or fallback
-                out = await model.generate(messages, config=GenerateConfig(temperature=judge_temperature))
+                generate_config = GenerateConfig()
+                if judge_temperature is not None:
+                    generate_config.temperature = judge_temperature
+                out = await model.generate(messages, config=generate_config)
                 completion = out.choices[0].message.content
 
                 is_valid, sc_val = validate_response(completion)
