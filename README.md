@@ -3,7 +3,8 @@
 The **Animal Harm Assessment (AHA) Benchmark** is an evaluation framework designed to assess the potential for harm to nonhuman animals in generated text by large language models (LLMs). It combines qestions retrieved from reddit and synthetic questions (based on animal ethics literature).
 
 For more information, see preprint: 
-https://drive.google.com/file/d/1JWIGyviy10pMesfx8hF6XAAajnAxEdg3/view?usp=sharing
+https://drive.google.com/file/d/1JWIGyviy10pMesfx8hF6XAAajnAxEdg3/view?usp=sharing 
+
 For a short overeview, see presentation:
 https://docs.google.com/presentation/d/1SN6QlBIgAJ1zQd0HuiQTVLtXkJGplNCbHsrs2LcEnog/edit?usp=sharing
 
