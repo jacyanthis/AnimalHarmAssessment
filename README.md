@@ -104,4 +104,4 @@ API Keys: Required for Anthropic, Google, and OpenAI.
 This project is licensed under the MIT License.
 
 ## Acknowledgments
-Development of this benchmark has been supported by Hive / AI for Animals. The setup has been built on UK AI Safety Institute's Inspect Evals.
+Development of this benchmark has been supported by [redacted]. The setup has been built on UK AI Safety Institute's Inspect Evals.
